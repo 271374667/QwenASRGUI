@@ -77,7 +77,34 @@ class ASRConfig:
 class ASRInterface:
     """
     ASR 接口类
-    提供语音识别功能的统一接口
+    提供语音识别功能的统一接口，封装模型加载、音频分段与转录流程。
+
+    用法概览：
+    - 创建实例：可传入 ASRConfig 指定模型路径、设备、批大小等
+    - 加载模型：`load_model()`；也可直接调用 `transcribe()` 自动加载
+    - 转录：`transcribe()` 单文件，`transcribe_batch()` 多文件
+    - 释放资源：`unload_model()` 主动释放显存
+    - 上下文管理：`with ASRInterface(...) as asr: ...` 自动加载与卸载
+
+    公开属性：
+    - status: 当前模型状态（ModelStatus）
+    - is_ready: 模型是否就绪
+
+    公开方法：
+    - load_model(): 显式加载 ASR 模型
+    - unload_model(): 卸载模型并释放显存
+    - transcribe(audio_path, return_time_stamps=True, show_progress=True): 转录单个音频文件
+    - transcribe_batch(audio_paths, return_time_stamps=True, show_progress=True): 批量转录多个音频文件
+
+    典型示例：
+        asr = ASRInterface()
+        result = asr.transcribe("demo.wav")
+        print(result.text)
+
+        with ASRInterface() as asr:
+            results = asr.transcribe_batch(["a.wav", "b.wav"])
+            for r in results:
+                print(r.language, r.duration)
     """
     
     def __init__(self, config: Optional[ASRConfig] = None):
@@ -145,52 +172,6 @@ class ASRInterface:
             torch.cuda.empty_cache()
             self._status = ModelStatus.NOT_LOADED
             logger.info("模型已卸载，显存已释放")
-    
-    def _log_gpu_status(self) -> None:
-        """记录 GPU 状态"""
-        if torch.cuda.is_available():
-            device_id = int(self.config.device.split(":")[-1]) if ":" in self.config.device else 0
-            allocated = torch.cuda.memory_allocated(device_id) / 1024**3
-            reserved = torch.cuda.memory_reserved(device_id) / 1024**3
-            total = torch.cuda.get_device_properties(device_id).total_memory / 1024**3
-            logger.info(f"GPU 显存状态: 已分配 {allocated:.2f}GB / 已预留 {reserved:.2f}GB / 总共 {total:.2f}GB")
-    
-    def _load_audio(self, audio_path: str) -> Tuple[np.ndarray, int]:
-        """
-        加载音频文件
-        
-        Args:
-            audio_path: 音频文件路径
-            
-        Returns:
-            音频数据和采样率
-        """
-        logger.info(f"加载音频: {audio_path}")
-        audio, sr = librosa.load(audio_path, sr=self.config.sample_rate)
-        duration = len(audio) / sr
-        logger.info(f"音频时长: {duration:.1f}秒")
-        return audio, sr
-    
-    def _segment_audio(self, audio: np.ndarray, sr: int) -> List[Tuple[np.ndarray, int]]:
-        """
-        将音频分段
-        
-        Args:
-            audio: 音频数据
-            sr: 采样率
-            
-        Returns:
-            分段后的音频列表
-        """
-        segment_samples = int(self.config.segment_duration * sr)
-        segments = []
-        
-        for start in range(0, len(audio), segment_samples):
-            end = min(start + segment_samples, len(audio))
-            segments.append((audio[start:end], sr))
-        
-        logger.info(f"音频已分为 {len(segments)} 段 (每段 {self.config.segment_duration}秒)")
-        return segments
     
     def transcribe(
         self,
@@ -310,3 +291,49 @@ class ASRInterface:
         """上下文管理器退出"""
         self.unload_model()
         return False
+
+    def _log_gpu_status(self) -> None:
+        """记录 GPU 状态"""
+        if torch.cuda.is_available():
+            device_id = int(self.config.device.split(":")[-1]) if ":" in self.config.device else 0
+            allocated = torch.cuda.memory_allocated(device_id) / 1024**3
+            reserved = torch.cuda.memory_reserved(device_id) / 1024**3
+            total = torch.cuda.get_device_properties(device_id).total_memory / 1024**3
+            logger.info(f"GPU 显存状态: 已分配 {allocated:.2f}GB / 已预留 {reserved:.2f}GB / 总共 {total:.2f}GB")
+
+    def _load_audio(self, audio_path: str) -> Tuple[np.ndarray, int]:
+        """
+        加载音频文件
+
+        Args:
+            audio_path: 音频文件路径
+
+        Returns:
+            音频数据和采样率
+        """
+        logger.info(f"加载音频: {audio_path}")
+        audio, sr = librosa.load(audio_path, sr=self.config.sample_rate)
+        duration = len(audio) / sr
+        logger.info(f"音频时长: {duration:.1f}秒")
+        return audio, sr
+
+    def _segment_audio(self, audio: np.ndarray, sr: int) -> List[Tuple[np.ndarray, int]]:
+        """
+        将音频分段
+
+        Args:
+            audio: 音频数据
+            sr: 采样率
+
+        Returns:
+            分段后的音频列表
+        """
+        segment_samples = int(self.config.segment_duration * sr)
+        segments = []
+
+        for start in range(0, len(audio), segment_samples):
+            end = min(start + segment_samples, len(audio))
+            segments.append((audio[start:end], sr))
+
+        logger.info(f"音频已分为 {len(segments)} 段 (每段 {self.config.segment_duration}秒)")
+        return segments
