@@ -3,6 +3,7 @@ ASR Interface Module
 提供面向对象的语音识别接口
 """
 
+import time
 import torch
 import warnings
 from dataclasses import dataclass
@@ -66,6 +67,12 @@ class ASRConfig:
     quantization_mode: QuantizationMode = QuantizationMode.AUTO
     # 自动量化时的安全余量（GB），确保有足够空间进行推理
     auto_quantization_safety_margin: float = 0.5
+    # 算力限制相关配置
+    # 推理间隔延迟（秒），在每个段推理后暂停，让 GPU 有时间处理其他任务（如游戏）
+    # 0 表示不添加延迟，建议后台运行时设置 0.1-0.5 秒
+    inference_delay: float = 0.0
+    # 是否启用低优先级模式（减少对其他 GPU 任务的影响）
+    low_priority_mode: bool = False
 
 
 class ASRInterface:
@@ -115,6 +122,10 @@ class ASRInterface:
         self._hardware = Hardware()  # 硬件信息检测器
         self._last_audio: Optional[AudioData] = None  # 缓存最后加载的音频
         self._actual_quantization_mode: Optional[QuantizationMode] = None  # 实际使用的量化模式
+        
+        # 应用低优先级模式
+        if self.config.low_priority_mode:
+            self._apply_low_priority_mode()
         
         logger.info("ASR 接口初始化完成")
         logger.debug(f"配置: ASR模型={self.config.asr_model_path}, 对齐器={self.config.aligner_model_path}")
@@ -278,6 +289,13 @@ class ASRInterface:
                         ))
                 
                 time_offset += self.config.segment_duration
+                
+                # 算力限制：在每个段推理后添加延迟，让 GPU 有时间处理其他任务
+                if self.config.inference_delay > 0:
+                    # 确保 GPU 操作完成
+                    torch.cuda.synchronize()
+                    # 添加延迟
+                    time.sleep(self.config.inference_delay)
             
             self._status = ModelStatus.READY
             
@@ -376,6 +394,40 @@ class ASRInterface:
         """
         device_id = self._get_device_id()
         return self._hardware.get_gpu_effective_available_memory_gb(device_id)
+
+    def _apply_low_priority_mode(self) -> None:
+        """
+        应用低优先级模式，降低进程优先级和 GPU 调度优先级
+        
+        这可以减少对其他 GPU 任务（如游戏）的影响
+        """
+        import platform
+        import os
+        
+        system = platform.system()
+        
+        try:
+            if system == "Windows":
+                import ctypes
+                
+                # 设置进程优先级为 BELOW_NORMAL (低于正常)
+                # BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
+                # IDLE_PRIORITY_CLASS = 0x00000040 (更低)
+                BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
+                
+                kernel32 = ctypes.windll.kernel32
+                handle = kernel32.GetCurrentProcess()
+                kernel32.SetPriorityClass(handle, BELOW_NORMAL_PRIORITY_CLASS)
+                
+                logger.info("已启用低优先级模式：进程优先级设置为 BELOW_NORMAL")
+                
+            elif system in ("Linux", "Darwin"):
+                # Unix: 使用 nice 值 (0-19, 值越大优先级越低)
+                os.nice(10)  # type: ignore[attr-defined]
+                logger.info("已启用低优先级模式：nice 值设置为 10")
+                
+        except Exception as e:
+            logger.warning(f"无法设置低优先级模式: {e}")
 
     def _determine_quantization_mode(self) -> QuantizationMode:
         """
@@ -500,4 +552,12 @@ class ASRInterface:
         logger.info(f"  最大生成 tokens: {self.config.max_new_tokens}")
         logger.info(f"  分段时长: {self.config.segment_duration}秒")
         logger.info(f"  采样率: {self.config.sample_rate}Hz")
+        
+        # 算力限制参数
+        if self.config.inference_delay > 0 or self.config.low_priority_mode:
+            logger.info("-" * 50)
+            logger.info("算力限制（后台模式）")
+            logger.info(f"  推理间隔延迟: {self.config.inference_delay}秒")
+            logger.info(f"  低优先级模式: {'启用' if self.config.low_priority_mode else '禁用'}")
+        
         logger.info("=" * 50)
