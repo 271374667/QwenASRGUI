@@ -4,11 +4,9 @@ ASR Interface Module
 """
 
 import torch
-import librosa
-import numpy as np
 import warnings
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import List, Optional, Union
 from enum import Enum
 
 from tqdm import tqdm
@@ -17,6 +15,7 @@ from transformers import logging as transformers_logging
 from qwen_asr import Qwen3ASRModel
 from src.core import paths
 from src.core.vo import TimeStampItem, TranscriptionResult
+from src.common.media_handler import MediaHandler, AudioData
 
 
 # 抑制 transformers 警告
@@ -89,6 +88,8 @@ class ASRInterface:
         self.config = config or ASRConfig()
         self._model: Optional[Qwen3ASRModel] = None
         self._status = ModelStatus.NOT_LOADED
+        self._media_handler = MediaHandler(default_sample_rate=self.config.sample_rate)
+        self._last_audio: Optional[AudioData] = None  # 缓存最后加载的音频
         
         logger.info("ASR 接口初始化完成")
         logger.debug(f"配置: ASR模型={self.config.asr_model_path}, 对齐器={self.config.aligner_model_path}")
@@ -147,7 +148,7 @@ class ASRInterface:
     
     def transcribe(
         self,
-        audio_path: str,
+        audio_input: Union[str, AudioData],
         return_time_stamps: bool = True,
         show_progress: bool = True,
     ) -> TranscriptionResult:
@@ -155,7 +156,7 @@ class ASRInterface:
         转录音频文件
         
         Args:
-            audio_path: 音频文件路径
+            audio_input: 音频文件路径或 AudioData 对象
             return_time_stamps: 是否返回时间戳
             show_progress: 是否显示进度条
             
@@ -167,15 +168,22 @@ class ASRInterface:
             self.load_model()
         
         self._status = ModelStatus.PROCESSING
-        logger.info(f"开始转录: {audio_path}")
         
         try:
-            # 加载音频
-            audio, sr = self._load_audio(audio_path)
-            total_duration = len(audio) / sr
+            # 加载音频（支持路径或 AudioData）
+            if isinstance(audio_input, str):
+                logger.info(f"开始转录: {audio_input}")
+                audio = self._media_handler.load(audio_input)
+            else:
+                logger.info(f"开始转录: AudioData ({audio_input.duration:.1f}秒)")
+                audio = audio_input
+            
+            # 缓存音频供后续使用（如 VAD）
+            self._last_audio = audio
+            total_duration = audio.duration
             
             # 分段处理
-            segments = self._segment_audio(audio, sr)
+            segments = self._media_handler.segment_with_tuples(audio, self.config.segment_duration)
             
             # 逐段处理
             all_texts = []
@@ -227,6 +235,22 @@ class ASRInterface:
             logger.error(f"转录失败: {e}")
             raise
     
+    def get_last_audio(self) -> Optional[AudioData]:
+        """
+        获取最后转录的音频数据
+        
+        用于 VAD 等后续处理，避免重复加载音频
+        
+        Returns:
+            AudioData 对象，如果未转录过则返回 None
+        """
+        return self._last_audio
+    
+    @property
+    def media_handler(self) -> MediaHandler:
+        """获取媒体处理器实例"""
+        return self._media_handler
+
     def transcribe_batch(
         self,
         audio_paths: List[str],
@@ -262,6 +286,7 @@ class ASRInterface:
     def __exit__(self, exc_type, exc_val, exc_tb):
         """上下文管理器退出"""
         self.unload_model()
+        self._media_handler.clear_cache()
         return False
 
     def _log_gpu_status(self) -> None:
@@ -272,40 +297,3 @@ class ASRInterface:
             reserved = torch.cuda.memory_reserved(device_id) / 1024**3
             total = torch.cuda.get_device_properties(device_id).total_memory / 1024**3
             logger.info(f"GPU 显存状态: 已分配 {allocated:.2f}GB / 已预留 {reserved:.2f}GB / 总共 {total:.2f}GB")
-
-    def _load_audio(self, audio_path: str) -> Tuple[np.ndarray, int]:
-        """
-        加载音频文件
-
-        Args:
-            audio_path: 音频文件路径
-
-        Returns:
-            音频数据和采样率
-        """
-        logger.info(f"加载音频: {audio_path}")
-        audio, sr = librosa.load(audio_path, sr=self.config.sample_rate)
-        duration = len(audio) / sr
-        logger.info(f"音频时长: {duration:.1f}秒")
-        return audio, sr
-
-    def _segment_audio(self, audio: np.ndarray, sr: int) -> List[Tuple[np.ndarray, int]]:
-        """
-        将音频分段
-
-        Args:
-            audio: 音频数据
-            sr: 采样率
-
-        Returns:
-            分段后的音频列表
-        """
-        segment_samples = int(self.config.segment_duration * sr)
-        segments = []
-
-        for start in range(0, len(audio), segment_samples):
-            end = min(start + segment_samples, len(audio))
-            segments.append((audio[start:end], sr))
-
-        logger.info(f"音频已分为 {len(segments)} 段 (每段 {self.config.segment_duration}秒)")
-        return segments

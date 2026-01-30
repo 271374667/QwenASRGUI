@@ -57,7 +57,7 @@ class BreaklineConfig:
     min_gap_threshold: float = 0.3  # 最小间隔阈值（秒）
     
     # 长度限制
-    max_chars_per_line: int = 40  # 每行最大字符数
+    max_chars_per_line: int = 18  # 每行最大字符数
     max_duration_per_line: float = 8.0  # 每行最大时长（秒）
     min_chars_per_line: int = 2  # 每行最小字符数（避免碎片）
     
