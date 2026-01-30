@@ -41,8 +41,8 @@ class ASRConfig:
     dtype: torch.dtype = torch.float16
     device: str = "cuda:0"
     max_inference_batch_size: int = 32
-    max_new_tokens: int = 512
-    segment_duration: float = 30.0  # 分段时长（秒）
+    max_new_tokens: int = 256
+    segment_duration: float = 15.0  # 分段时长（秒）
     sample_rate: int = 16000
 
 
