@@ -167,6 +167,9 @@ class ASRInterface:
             logger.warning("模型未加载，正在自动加载...")
             self.load_model()
         
+        if self._model is None:
+            raise RuntimeError("模型未加载，无法进行转录")
+        
         self._status = ModelStatus.PROCESSING
         
         try:
