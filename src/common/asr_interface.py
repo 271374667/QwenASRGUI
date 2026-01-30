@@ -1,0 +1,312 @@
+"""
+ASR Interface Module
+提供面向对象的语音识别接口
+"""
+
+import torch
+import librosa
+import numpy as np
+import warnings
+from dataclasses import dataclass
+from typing import List, Optional, Union, Tuple
+from pathlib import Path
+from enum import Enum
+
+from tqdm import tqdm
+from loguru import logger
+from transformers import logging as transformers_logging
+from qwen_asr import Qwen3ASRModel
+from src.core import paths
+
+
+# 抑制 transformers 警告
+transformers_logging.set_verbosity_error()
+warnings.filterwarnings("ignore", message=".*pad_token_id.*")
+
+
+class ModelStatus(Enum):
+    """模型状态枚举"""
+    NOT_LOADED = "未加载"
+    LOADING = "加载中"
+    READY = "就绪"
+    PROCESSING = "处理中"
+    ERROR = "错误"
+
+
+@dataclass
+class TimeStampItem:
+    """时间戳项"""
+    text: str
+    start_time: float
+    end_time: float
+    
+    def __str__(self) -> str:
+        return f"[{self.start_time:.2f}s - {self.end_time:.2f}s] {self.text}"
+
+
+@dataclass 
+class TranscriptionResult:
+    """转录结果"""
+    language: str
+    text: str
+    time_stamps: Optional[List[TimeStampItem]] = None
+    duration: float = 0.0
+    
+    def get_full_text(self) -> str:
+        return self.text
+    
+    def get_formatted_timestamps(self) -> str:
+        if not self.time_stamps:
+            return ""
+        return "\n".join(str(ts) for ts in self.time_stamps)
+
+
+@dataclass
+class ASRConfig:
+    """ASR 配置"""
+    asr_model_path: str = str(paths.ASR_MODEL_DIR)
+    aligner_model_path: str = str(paths.FORCED_ALIGNER_MODEL_DIR)
+    dtype: torch.dtype = torch.float16
+    device: str = "cuda:0"
+    max_inference_batch_size: int = 32
+    max_new_tokens: int = 2048
+    segment_duration: float = 30.0  # 分段时长（秒）
+    sample_rate: int = 16000
+
+
+class ASRInterface:
+    """
+    ASR 接口类
+    提供语音识别功能的统一接口
+    """
+    
+    def __init__(self, config: Optional[ASRConfig] = None):
+        """
+        初始化 ASR 接口
+        
+        Args:
+            config: ASR 配置，如果为 None 则使用默认配置
+        """
+        self.config = config or ASRConfig()
+        self._model: Optional[Qwen3ASRModel] = None
+        self._status = ModelStatus.NOT_LOADED
+        
+        logger.info("ASR 接口初始化完成")
+        logger.debug(f"配置: ASR模型={self.config.asr_model_path}, 对齐器={self.config.aligner_model_path}")
+    
+    @property
+    def status(self) -> ModelStatus:
+        """获取当前模型状态"""
+        return self._status
+    
+    @property
+    def is_ready(self) -> bool:
+        """检查模型是否就绪"""
+        return self._status == ModelStatus.READY
+    
+    def load_model(self) -> None:
+        """加载模型"""
+        if self._status == ModelStatus.READY:
+            logger.warning("模型已加载，跳过重复加载")
+            return
+        
+        self._status = ModelStatus.LOADING
+        logger.info("开始加载 ASR 模型...")
+        logger.info(f"ASR 模型路径: {self.config.asr_model_path}")
+        logger.info(f"对齐器模型路径: {self.config.aligner_model_path}")
+        
+        try:
+            self._model = Qwen3ASRModel.from_pretrained(
+                self.config.asr_model_path,
+                dtype=self.config.dtype,
+                device_map=self.config.device,
+                max_inference_batch_size=self.config.max_inference_batch_size,
+                max_new_tokens=self.config.max_new_tokens,
+                forced_aligner=self.config.aligner_model_path,
+                forced_aligner_kwargs=dict(
+                    dtype=self.config.dtype,
+                    device_map=self.config.device,
+                ),
+            )
+            self._status = ModelStatus.READY
+            logger.success("模型加载完成")
+            self._log_gpu_status()
+            
+        except Exception as e:
+            self._status = ModelStatus.ERROR
+            logger.error(f"模型加载失败: {e}")
+            raise
+    
+    def unload_model(self) -> None:
+        """卸载模型释放显存"""
+        if self._model is not None:
+            del self._model
+            self._model = None
+            torch.cuda.empty_cache()
+            self._status = ModelStatus.NOT_LOADED
+            logger.info("模型已卸载，显存已释放")
+    
+    def _log_gpu_status(self) -> None:
+        """记录 GPU 状态"""
+        if torch.cuda.is_available():
+            device_id = int(self.config.device.split(":")[-1]) if ":" in self.config.device else 0
+            allocated = torch.cuda.memory_allocated(device_id) / 1024**3
+            reserved = torch.cuda.memory_reserved(device_id) / 1024**3
+            total = torch.cuda.get_device_properties(device_id).total_memory / 1024**3
+            logger.info(f"GPU 显存状态: 已分配 {allocated:.2f}GB / 已预留 {reserved:.2f}GB / 总共 {total:.2f}GB")
+    
+    def _load_audio(self, audio_path: str) -> Tuple[np.ndarray, int]:
+        """
+        加载音频文件
+        
+        Args:
+            audio_path: 音频文件路径
+            
+        Returns:
+            音频数据和采样率
+        """
+        logger.info(f"加载音频: {audio_path}")
+        audio, sr = librosa.load(audio_path, sr=self.config.sample_rate)
+        duration = len(audio) / sr
+        logger.info(f"音频时长: {duration:.1f}秒")
+        return audio, sr
+    
+    def _segment_audio(self, audio: np.ndarray, sr: int) -> List[Tuple[np.ndarray, int]]:
+        """
+        将音频分段
+        
+        Args:
+            audio: 音频数据
+            sr: 采样率
+            
+        Returns:
+            分段后的音频列表
+        """
+        segment_samples = int(self.config.segment_duration * sr)
+        segments = []
+        
+        for start in range(0, len(audio), segment_samples):
+            end = min(start + segment_samples, len(audio))
+            segments.append((audio[start:end], sr))
+        
+        logger.info(f"音频已分为 {len(segments)} 段 (每段 {self.config.segment_duration}秒)")
+        return segments
+    
+    def transcribe(
+        self,
+        audio_path: str,
+        return_time_stamps: bool = True,
+        show_progress: bool = True,
+    ) -> TranscriptionResult:
+        """
+        转录音频文件
+        
+        Args:
+            audio_path: 音频文件路径
+            return_time_stamps: 是否返回时间戳
+            show_progress: 是否显示进度条
+            
+        Returns:
+            转录结果
+        """
+        if not self.is_ready:
+            logger.warning("模型未加载，正在自动加载...")
+            self.load_model()
+        
+        self._status = ModelStatus.PROCESSING
+        logger.info(f"开始转录: {audio_path}")
+        
+        try:
+            # 加载音频
+            audio, sr = self._load_audio(audio_path)
+            total_duration = len(audio) / sr
+            
+            # 分段处理
+            segments = self._segment_audio(audio, sr)
+            
+            # 逐段处理
+            all_texts = []
+            all_timestamps = []
+            time_offset = 0.0
+            detected_language = None
+            
+            iterator = tqdm(segments, desc="转录进度") if show_progress else segments
+            
+            for segment in iterator:
+                result = self._model.transcribe(
+                    audio=segment,
+                    return_time_stamps=return_time_stamps
+                )
+                
+                segment_result = result[0]
+                all_texts.append(segment_result.text)
+                
+                if detected_language is None:
+                    detected_language = segment_result.language
+                
+                # 处理时间戳
+                if return_time_stamps and segment_result.time_stamps:
+                    for item in segment_result.time_stamps:
+                        all_timestamps.append(TimeStampItem(
+                            text=item.text,
+                            start_time=item.start_time + time_offset,
+                            end_time=item.end_time + time_offset
+                        ))
+                
+                time_offset += self.config.segment_duration
+            
+            self._status = ModelStatus.READY
+            
+            result = TranscriptionResult(
+                language=detected_language or "unknown",
+                text="".join(all_texts),
+                time_stamps=all_timestamps if all_timestamps else None,
+                duration=total_duration
+            )
+            
+            logger.success(f"转录完成: 语言={result.language}, 时长={result.duration:.1f}秒, 文字长度={len(result.text)}")
+            self._log_gpu_status()
+            
+            return result
+            
+        except Exception as e:
+            self._status = ModelStatus.ERROR
+            logger.error(f"转录失败: {e}")
+            raise
+    
+    def transcribe_batch(
+        self,
+        audio_paths: List[str],
+        return_time_stamps: bool = True,
+        show_progress: bool = True,
+    ) -> List[TranscriptionResult]:
+        """
+        批量转录多个音频文件
+        
+        Args:
+            audio_paths: 音频文件路径列表
+            return_time_stamps: 是否返回时间戳
+            show_progress: 是否显示进度条
+            
+        Returns:
+            转录结果列表
+        """
+        results = []
+        
+        for i, audio_path in enumerate(audio_paths):
+            logger.info(f"处理文件 {i+1}/{len(audio_paths)}: {audio_path}")
+            result = self.transcribe(audio_path, return_time_stamps, show_progress)
+            results.append(result)
+        
+        logger.success(f"批量转录完成: 共 {len(results)} 个文件")
+        return results
+    
+    def __enter__(self):
+        """上下文管理器入口"""
+        self.load_model()
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """上下文管理器退出"""
+        self.unload_model()
+        return False
