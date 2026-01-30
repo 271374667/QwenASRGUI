@@ -16,6 +16,7 @@ from qwen_asr import Qwen3ASRModel
 from src.core import paths
 from src.core.vo import TimeStampItem, TranscriptionResult
 from src.common.media_handler import MediaHandler, AudioData
+from src.utils.hardware import Hardware
 
 
 # 抑制 transformers 警告
@@ -32,6 +33,24 @@ class ModelStatus(Enum):
     ERROR = "错误"
 
 
+class QuantizationMode(Enum):
+    """量化模式枚举"""
+    NONE = "fp16"      # 无量化，使用 fp16
+    INT8 = "int8"      # 8-bit 量化
+    INT4 = "int4"      # 4-bit 量化
+    AUTO = "auto"      # 自动选择
+
+
+# 不同量化模式下模型的预估显存需求（GB）
+# 基于 Qwen3-ASR-1.7B + Forced Aligner 模型估算
+# 注意：KV cache 和激活值在推理时仍使用 fp16，需要额外显存
+VRAM_REQUIREMENTS = {
+    QuantizationMode.NONE: 6.0,   # fp16: ~3.4GB ASR + ~1.2GB Aligner + 1.4GB 推理开销
+    QuantizationMode.INT8: 4.5,   # int8: ~1.7GB ASR + ~1.2GB Aligner + 1.6GB 推理开销(KV cache仍fp16)
+    QuantizationMode.INT4: 3.5,   # int4: ~0.85GB ASR + ~1.2GB Aligner + 1.45GB 推理开销
+}
+
+
 @dataclass
 class ASRConfig:
     """ASR 配置"""
@@ -43,6 +62,10 @@ class ASRConfig:
     max_new_tokens: int = 256
     segment_duration: float = 15.0  # 分段时长（秒）
     sample_rate: int = 16000
+    # 量化相关配置
+    quantization_mode: QuantizationMode = QuantizationMode.AUTO
+    # 自动量化时的安全余量（GB），确保有足够空间进行推理
+    auto_quantization_safety_margin: float = 0.5
 
 
 class ASRInterface:
@@ -89,7 +112,9 @@ class ASRInterface:
         self._model: Optional[Qwen3ASRModel] = None
         self._status = ModelStatus.NOT_LOADED
         self._media_handler = MediaHandler(default_sample_rate=self.config.sample_rate)
+        self._hardware = Hardware()  # 硬件信息检测器
         self._last_audio: Optional[AudioData] = None  # 缓存最后加载的音频
+        self._actual_quantization_mode: Optional[QuantizationMode] = None  # 实际使用的量化模式
         
         logger.info("ASR 接口初始化完成")
         logger.debug(f"配置: ASR模型={self.config.asr_model_path}, 对齐器={self.config.aligner_model_path}")
@@ -104,34 +129,50 @@ class ASRInterface:
         """检查模型是否就绪"""
         return self._status == ModelStatus.READY
     
+    @property
+    def actual_quantization_mode(self) -> Optional[QuantizationMode]:
+        """获取实际使用的量化模式"""
+        return self._actual_quantization_mode
+    
     def load_model(self) -> None:
-        """加载模型"""
+        """加载模型（支持自动量化降级）"""
         if self._status == ModelStatus.READY:
             logger.warning("模型已加载，跳过重复加载")
             return
         
         self._status = ModelStatus.LOADING
         logger.info("开始加载 ASR 模型...")
-        logger.info(f"ASR 模型路径: {self.config.asr_model_path}")
-        logger.info(f"对齐器模型路径: {self.config.aligner_model_path}")
+        
+        # 确定量化模式
+        quantization_mode = self._determine_quantization_mode()
+        self._actual_quantization_mode = quantization_mode
+        
+        # 打印加载参数
+        self._log_loading_params(quantization_mode)
         
         try:
-            self._model = Qwen3ASRModel.from_pretrained(
-                self.config.asr_model_path,
-                dtype=self.config.dtype,
-                device_map=self.config.device,
-                max_inference_batch_size=self.config.max_inference_batch_size,
-                max_new_tokens=self.config.max_new_tokens,
-                forced_aligner=self.config.aligner_model_path,
-                forced_aligner_kwargs=dict(
-                    dtype=self.config.dtype,
-                    device_map=self.config.device,
-                ),
-            )
+            # 构建模型加载参数
+            model_kwargs = self._build_model_kwargs(quantization_mode)
+            
+            self._model = Qwen3ASRModel.from_pretrained(**model_kwargs)
             self._status = ModelStatus.READY
             logger.success("模型加载完成")
             self._log_gpu_status()
             
+        except torch.cuda.OutOfMemoryError as e:
+            # 如果 OOM 且还能降级，尝试降级
+            lower_mode = self._get_lower_quantization_mode(quantization_mode)
+            if lower_mode is not None:
+                logger.warning(f"显存不足，尝试降级到 {lower_mode.value} 量化模式...")
+                self._status = ModelStatus.NOT_LOADED
+                torch.cuda.empty_cache()
+                # 更新配置并重试
+                self.config.quantization_mode = lower_mode
+                self.load_model()
+            else:
+                self._status = ModelStatus.ERROR
+                logger.error(f"模型加载失败（显存不足）: {e}")
+                raise
         except Exception as e:
             self._status = ModelStatus.ERROR
             logger.error(f"模型加载失败: {e}")
@@ -197,10 +238,29 @@ class ASRInterface:
             iterator = tqdm(segments, desc="转录进度") if show_progress else segments
             
             for segment in iterator:
-                result = self._model.transcribe(
-                    audio=segment,
-                    return_time_stamps=return_time_stamps
-                )
+                try:
+                    result = self._model.transcribe(
+                        audio=segment,
+                        return_time_stamps=return_time_stamps
+                    )
+                except torch.cuda.OutOfMemoryError as oom_error:
+                    # 推理时 OOM，尝试降级量化模式
+                    current_mode = self._actual_quantization_mode or QuantizationMode.NONE
+                    lower_mode = self._get_lower_quantization_mode(current_mode)
+                    if lower_mode is not None:
+                        logger.warning(
+                            f"推理时显存不足，尝试降级到 {lower_mode.value} 量化模式并重新加载模型..."
+                        )
+                        # 卸载当前模型
+                        self.unload_model()
+                        # 更新配置并重新加载
+                        self.config.quantization_mode = lower_mode
+                        self.load_model()
+                        # 重新开始转录（递归调用）
+                        return self.transcribe(audio_input, return_time_stamps, show_progress)
+                    else:
+                        logger.error("推理时显存不足，已是最低精度模式，无法继续降级")
+                        raise oom_error
                 
                 segment_result = result[0]
                 all_texts.append(segment_result.text)
@@ -292,11 +352,152 @@ class ASRInterface:
         self._media_handler.clear_cache()
         return False
 
+    def _get_device_id(self) -> int:
+        """从设备字符串解析设备 ID"""
+        return int(self.config.device.split(":")[-1]) if ":" in self.config.device else 0
+
     def _log_gpu_status(self) -> None:
         """记录 GPU 状态"""
-        if torch.cuda.is_available():
-            device_id = int(self.config.device.split(":")[-1]) if ":" in self.config.device else 0
-            allocated = torch.cuda.memory_allocated(device_id) / 1024**3
-            reserved = torch.cuda.memory_reserved(device_id) / 1024**3
-            total = torch.cuda.get_device_properties(device_id).total_memory / 1024**3
-            logger.info(f"GPU 显存状态: 已分配 {allocated:.2f}GB / 已预留 {reserved:.2f}GB / 总共 {total:.2f}GB")
+        device_id = self._get_device_id()
+        status = self._hardware.get_gpu_memory_status(device_id)
+        
+        if status.get("available"):
+            logger.info(
+                f"GPU 显存状态: 已分配 {status['allocated_gb']:.2f}GB / "
+                f"已预留 {status['reserved_gb']:.2f}GB / 总共 {status['total_gb']:.2f}GB"
+            )
+
+    def _get_available_vram(self) -> float:
+        """
+        获取当前可用的 GPU 显存（GB）
+        
+        Returns:
+            可用显存（GB），如果无 GPU 返回 0
+        """
+        device_id = self._get_device_id()
+        return self._hardware.get_gpu_effective_available_memory_gb(device_id)
+
+    def _determine_quantization_mode(self) -> QuantizationMode:
+        """
+        根据配置和可用显存确定量化模式
+        
+        Returns:
+            最终确定的量化模式
+        """
+        configured_mode = self.config.quantization_mode
+        
+        # 如果不是自动模式，直接返回配置的模式
+        if configured_mode != QuantizationMode.AUTO:
+            logger.info(f"使用配置的量化模式: {configured_mode.value}")
+            return configured_mode
+        
+        # 自动模式：根据可用显存选择
+        available_vram = self._get_available_vram()
+        safety_margin = self.config.auto_quantization_safety_margin
+        usable_vram = available_vram - safety_margin
+        
+        logger.info(f"自动量化模式: 可用显存 {available_vram:.2f}GB, 安全余量 {safety_margin:.2f}GB, 可用于模型 {usable_vram:.2f}GB")
+        
+        # 按优先级选择量化模式（优先选择精度更高的）
+        if usable_vram >= VRAM_REQUIREMENTS[QuantizationMode.NONE]:
+            selected_mode = QuantizationMode.NONE
+            logger.info(f"显存充足，选择 {selected_mode.value} 模式（无量化）")
+        elif usable_vram >= VRAM_REQUIREMENTS[QuantizationMode.INT8]:
+            selected_mode = QuantizationMode.INT8
+            logger.warning(f"显存受限，自动切换到 {selected_mode.value} 量化模式")
+        elif usable_vram >= VRAM_REQUIREMENTS[QuantizationMode.INT4]:
+            selected_mode = QuantizationMode.INT4
+            logger.warning(f"显存严重受限，自动切换到 {selected_mode.value} 量化模式")
+        else:
+            # 显存极度不足，仍尝试 int4
+            selected_mode = QuantizationMode.INT4
+            logger.error(
+                f"显存极度不足（可用 {usable_vram:.2f}GB，需要至少 {VRAM_REQUIREMENTS[QuantizationMode.INT4]:.2f}GB），"
+                f"强制使用 {selected_mode.value} 量化模式，可能会失败"
+            )
+        
+        return selected_mode
+
+    def _get_lower_quantization_mode(self, current_mode: QuantizationMode) -> Optional[QuantizationMode]:
+        """
+        获取更低精度的量化模式（用于降级）
+        
+        Args:
+            current_mode: 当前量化模式
+            
+        Returns:
+            更低精度的模式，如果已是最低则返回 None
+        """
+        degradation_order = [QuantizationMode.NONE, QuantizationMode.INT8, QuantizationMode.INT4]
+        
+        if current_mode == QuantizationMode.AUTO:
+            current_mode = QuantizationMode.NONE
+        
+        try:
+            current_idx = degradation_order.index(current_mode)
+            if current_idx < len(degradation_order) - 1:
+                return degradation_order[current_idx + 1]
+        except ValueError:
+            pass
+        
+        return None
+
+    def _build_model_kwargs(self, quantization_mode: QuantizationMode) -> dict:
+        """
+        构建模型加载参数
+        
+        Args:
+            quantization_mode: 量化模式
+            
+        Returns:
+            模型加载参数字典
+        """
+        base_kwargs = {
+            "pretrained_model_name_or_path": self.config.asr_model_path,
+            "device_map": self.config.device,
+            "max_inference_batch_size": self.config.max_inference_batch_size,
+            "max_new_tokens": self.config.max_new_tokens,
+            "forced_aligner": self.config.aligner_model_path,
+            "forced_aligner_kwargs": dict(
+                dtype=self.config.dtype,
+                device_map=self.config.device,
+            ),
+        }
+        
+        # 根据量化模式设置参数
+        if quantization_mode == QuantizationMode.NONE:
+            base_kwargs["dtype"] = self.config.dtype
+        elif quantization_mode == QuantizationMode.INT8:
+            base_kwargs["load_in_8bit"] = True
+        elif quantization_mode == QuantizationMode.INT4:
+            base_kwargs["load_in_4bit"] = True
+        
+        return base_kwargs
+
+    def _log_loading_params(self, quantization_mode: QuantizationMode) -> None:
+        """
+        打印模型加载参数
+        
+        Args:
+            quantization_mode: 量化模式
+        """
+        logger.info("=" * 50)
+        logger.info("模型加载参数")
+        logger.info("=" * 50)
+        logger.info(f"  ASR 模型路径: {self.config.asr_model_path}")
+        logger.info(f"  对齐器模型路径: {self.config.aligner_model_path}")
+        logger.info(f"  设备: {self.config.device}")
+        logger.info(f"  量化模式: {quantization_mode.value}")
+        
+        if quantization_mode == QuantizationMode.NONE:
+            logger.info(f"  数据类型: {self.config.dtype}")
+        elif quantization_mode == QuantizationMode.INT8:
+            logger.info("  数据类型: 8-bit 量化")
+        elif quantization_mode == QuantizationMode.INT4:
+            logger.info("  数据类型: 4-bit 量化")
+        
+        logger.info(f"  最大推理批大小: {self.config.max_inference_batch_size}")
+        logger.info(f"  最大生成 tokens: {self.config.max_new_tokens}")
+        logger.info(f"  分段时长: {self.config.segment_duration}秒")
+        logger.info(f"  采样率: {self.config.sample_rate}Hz")
+        logger.info("=" * 50)
