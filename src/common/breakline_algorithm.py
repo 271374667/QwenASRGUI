@@ -36,12 +36,12 @@ class GapDetectionMethod(Enum):
 
 @dataclass
 class VADConfig:
-    """VAD 配置"""
+    """VAD 配置（默认针对汉语代码教学视频优化）"""
     # 检测参数
-    threshold: float = 0.5  # 语音活动阈值 (0-1)
-    min_speech_duration_ms: int = 250  # 最小语音片段时长（毫秒）
-    min_silence_duration_ms: int = 100  # 最小静音片段时长（毫秒）
-    speech_pad_ms: int = 30  # 语音片段前后填充（毫秒）
+    threshold: float = 0.4  # 语音活动阈值 (0-1)，降低以捕获轻声讲解
+    min_speech_duration_ms: int = 200  # 最小语音片段时长（毫秒），汉语单字发音较短
+    min_silence_duration_ms: int = 150  # 最小静音片段时长（毫秒），代码讲解停顿较多
+    speech_pad_ms: int = 50  # 语音片段前后填充（毫秒），增加以避免截断
     
     # 采样率
     sample_rate: int = 16000  # 采样率（Silero VAD 支持 8000 或 16000）
@@ -49,21 +49,21 @@ class VADConfig:
 
 @dataclass
 class BreaklineConfig:
-    """分行配置"""
+    """分行配置（默认针对汉语代码教学视频优化）"""
     # 间隔检测
     gap_detection_method: GapDetectionMethod = GapDetectionMethod.SILERO_VAD
-    fixed_gap_threshold: float = 0.5  # 固定阈值方法的间隔阈值（秒）
-    percentile_threshold: float = 75  # 百分位数方法的阈值
-    min_gap_threshold: float = 0.3  # 最小间隔阈值（秒）
+    fixed_gap_threshold: float = 0.6  # 固定阈值方法的间隔阈值（秒），教学视频停顿多
+    percentile_threshold: float = 70  # 百分位数方法的阈值，稍低以适应不均匀语速
+    min_gap_threshold: float = 0.35  # 最小间隔阈值（秒），避免过度分割
     
     # 长度限制
-    max_chars_per_line: int = 18  # 每行最大字符数
-    max_duration_per_line: float = 8.0  # 每行最大时长（秒）
-    min_chars_per_line: int = 2  # 每行最小字符数（避免碎片）
+    max_chars_per_line: int = 20  # 每行最大字符数，汉语+少量英文术语适合 15-22 字
+    max_duration_per_line: float = 5.0  # 每行最大时长（秒），缩短以提高字幕可读性
+    min_chars_per_line: int = 4  # 每行最小字符数（避免碎片），汉语至少 4 字成句
     
     # 合并选项
     merge_short_gaps: bool = True  # 是否合并短间隔
-    merge_threshold: float = 0.1  # 合并阈值（秒）
+    merge_threshold: float = 0.15  # 合并阈值（秒），稍高以合并碎片
     
     # VAD 配置（当使用 SILERO_VAD 方法时）
     vad_config: VADConfig = field(default_factory=VADConfig)
