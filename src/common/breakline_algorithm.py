@@ -357,15 +357,18 @@ class BreaklineAlgorithm:
         method = self.config.gap_detection_method
 
         if method == GapDetectionMethod.FIXED_THRESHOLD:
+            logger.info(f"使用分割算法: 固定阈值 (阈值={self.config.fixed_gap_threshold}秒)")
             return self.config.fixed_gap_threshold
 
         elif method == GapDetectionMethod.PERCENTILE:
             # 使用百分位数 - O(n log n)
+            logger.info(f"使用分割算法: 百分位数自适应 (百分位={self.config.percentile_threshold})")
             threshold = float(np.percentile(gaps, self.config.percentile_threshold))
             return max(threshold, self.config.min_gap_threshold)
 
         elif method == GapDetectionMethod.IQR:
             # 使用四分位距方法 - O(n log n)
+            logger.info("使用分割算法: 四分位距 (IQR)")
             q1, q3 = np.percentile(gaps, [25, 75])
             iqr = float(q3 - q1)
             threshold = float(q3) + 1.5 * iqr
@@ -373,13 +376,16 @@ class BreaklineAlgorithm:
 
         elif method == GapDetectionMethod.OTSU:
             # 使用大津算法 - O(n × bins)，比 K-means 快很多
+            logger.info("使用分割算法: 大津算法 (Otsu)")
             return self._otsu_threshold(gaps)
 
         elif method == GapDetectionMethod.CLUSTERING:
             # 使用 K-means 聚类区分短间隔和长间隔
+            logger.info("使用分割算法: K-means 聚类")
             return self._cluster_gaps(gaps)
 
         else:
+            logger.info(f"使用分割算法: 固定阈值 (默认, 阈值={self.config.fixed_gap_threshold}秒)")
             return self.config.fixed_gap_threshold
 
     def _otsu_threshold(self, gaps: np.ndarray) -> float:
