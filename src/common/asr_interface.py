@@ -8,8 +8,7 @@ import librosa
 import numpy as np
 import warnings
 from dataclasses import dataclass
-from typing import List, Optional, Union, Tuple
-from pathlib import Path
+from typing import List, Optional, Tuple
 from enum import Enum
 
 from tqdm import tqdm
@@ -17,6 +16,7 @@ from loguru import logger
 from transformers import logging as transformers_logging
 from qwen_asr import Qwen3ASRModel
 from src.core import paths
+from src.core.vo import TimeStampItem, TranscriptionResult
 
 
 # 抑制 transformers 警告
@@ -34,34 +34,6 @@ class ModelStatus(Enum):
 
 
 @dataclass
-class TimeStampItem:
-    """时间戳项"""
-    text: str
-    start_time: float
-    end_time: float
-    
-    def __str__(self) -> str:
-        return f"[{self.start_time:.2f}s - {self.end_time:.2f}s] {self.text}"
-
-
-@dataclass 
-class TranscriptionResult:
-    """转录结果"""
-    language: str
-    text: str
-    time_stamps: Optional[List[TimeStampItem]] = None
-    duration: float = 0.0
-    
-    def get_full_text(self) -> str:
-        return self.text
-    
-    def get_formatted_timestamps(self) -> str:
-        if not self.time_stamps:
-            return ""
-        return "\n".join(str(ts) for ts in self.time_stamps)
-
-
-@dataclass
 class ASRConfig:
     """ASR 配置"""
     asr_model_path: str = str(paths.ASR_MODEL_DIR)
@@ -69,7 +41,7 @@ class ASRConfig:
     dtype: torch.dtype = torch.float16
     device: str = "cuda:0"
     max_inference_batch_size: int = 32
-    max_new_tokens: int = 2048
+    max_new_tokens: int = 512
     segment_duration: float = 30.0  # 分段时长（秒）
     sample_rate: int = 16000
 
