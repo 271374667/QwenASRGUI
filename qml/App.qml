@@ -3,7 +3,6 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.FluentWinUI3
 import QtQuick.Layouts
-import QtQuick.Effects
 import "./Global"
 
 // StackView 不被 FluentWinUI3 支持，需要单独导入
@@ -30,7 +29,6 @@ ApplicationWindow {
     readonly property color pressedColor: isDark ? "#4d4d4d" : "#d5d5d5"
     readonly property color selectedColor: isDark ? "#4d4d4d" : "#dcdcdc"
     readonly property color iconColor: isDark ? "#ffffff" : "#1a1a1a"
-    readonly property color iconSecondaryColor: isDark ? "#b3b3b3" : "#666666"
 
     // 当前选中的导航索引
     property int currentNavIndex: 0
@@ -43,139 +41,139 @@ ApplicationWindow {
         anchors.fill: parent
         spacing: 0
 
-        // 侧边导航栏
-        Rectangle {
-            id: sideBar
+        // 侧边导航栏 - 使用固定宽度避免布局变化
+        Item {
+            id: sideBarContainer
             Layout.preferredWidth: 48
+            Layout.minimumWidth: 48
+            Layout.maximumWidth: 48
             Layout.fillHeight: true
-            color: sideBarColor
+            clip: true  // 防止内部元素溢出影响布局
 
-            // 导航按钮容器
-            ColumnLayout {
-                id: navColumn
+            Rectangle {
+                id: sideBar
                 anchors.fill: parent
-                anchors.topMargin: 8
-                anchors.bottomMargin: 8
-                spacing: 4
+                color: sideBarColor
+                clip: true  // 防止子元素溢出
 
-                // 转录
-                NavButton {
-                    id: navTranscribe
-                    navIndex: 0
-                    iconSource: ImagePath.mic
-                    toolTipText: qsTr("转录")
-                    onClicked: navigateTo(0, transcribePage)
-                }
+                // 选中背景（放在按钮下层）
+                Rectangle {
+                    id: selectionBackground
+                    width: 40
+                    height: 40
+                    radius: 6
+                    color: selectedColor
+                    x: (sideBar.width - width) / 2
+                    z: 0
 
-                // 对齐
-                NavButton {
-                    id: navAlign
-                    navIndex: 1
-                    iconSource: ImagePath.timePicker
-                    toolTipText: qsTr("对齐")
-                    onClicked: navigateTo(1, alignPage)
-                }
-
-                // 日志
-                NavButton {
-                    id: navLog
-                    navIndex: 2
-                    iconSource: ImagePath.log
-                    toolTipText: qsTr("日志")
-                    onClicked: navigateTo(2, logPage)
-                }
-
-                // 弹性空间
-                Item {
-                    Layout.fillHeight: true
-                }
-
-                // 设置（底部）
-                NavButton {
-                    id: navSettings
-                    navIndex: 3
-                    iconSource: ImagePath.settings
-                    toolTipText: qsTr("设置")
-                    onClicked: navigateTo(3, settingsPage)
-                }
-            }
-
-            // 选中指示器（独立元素，实现跨按钮移动动画）
-            Rectangle {
-                id: selectionIndicator
-                width: 3
-                height: 16
-                radius: 1.5
-                color: accentColor
-                x: 0
-
-                // 计算指示器的 Y 位置
-                y: {
-                    let targetBtn = getNavButton(currentNavIndex)
-                    if (targetBtn) {
-                        return targetBtn.y + navColumn.anchors.topMargin + (targetBtn.height - height) / 2
+                    // 计算背景的 Y 位置
+                    y: {
+                        let targetBtn = getNavButton(currentNavIndex)
+                        if (targetBtn) {
+                            return targetBtn.y + navColumn.anchors.topMargin
+                        }
+                        return 8
                     }
-                    return 8 + 12  // 默认位置
-                }
 
-                // Y 位置动画
-                Behavior on y {
-                    NumberAnimation {
-                        duration: 200
-                        easing.type: Easing.OutCubic
+                    Behavior on y {
+                        NumberAnimation {
+                            duration: 200
+                            easing.type: Easing.OutCubic
+                        }
                     }
                 }
 
-                // 高度动画（切换时先缩短再恢复）
-                SequentialAnimation on height {
-                    id: indicatorHeightAnim
-                    running: false
+                // 导航按钮容器
+                ColumnLayout {
+                    id: navColumn
+                    anchors.fill: parent
+                    anchors.topMargin: 8
+                    anchors.bottomMargin: 8
+                    spacing: 4
+                    z: 1
 
-                    NumberAnimation {
-                        to: 8
-                        duration: 100
-                        easing.type: Easing.InCubic
+                    // 转录
+                    NavButton {
+                        id: navTranscribe
+                        navIndex: 0
+                        iconSource: ImagePath.mic
+                        toolTipText: qsTr("转录")
+                        onClicked: navigateTo(0, transcribePage)
                     }
-                    NumberAnimation {
-                        to: 16
-                        duration: 100
-                        easing.type: Easing.OutCubic
+
+                    // 对齐
+                    NavButton {
+                        id: navAlign
+                        navIndex: 1
+                        iconSource: ImagePath.timePicker
+                        toolTipText: qsTr("对齐")
+                        onClicked: navigateTo(1, alignPage)
+                    }
+
+                    // 日志
+                    NavButton {
+                        id: navLog
+                        navIndex: 2
+                        iconSource: ImagePath.log
+                        toolTipText: qsTr("日志")
+                        onClicked: navigateTo(2, logPage)
+                    }
+
+                    // 弹性空间
+                    Item {
+                        Layout.fillHeight: true
+                    }
+
+                    // 设置（底部）
+                    NavButton {
+                        id: navSettings
+                        navIndex: 3
+                        iconSource: ImagePath.settings
+                        toolTipText: qsTr("设置")
+                        onClicked: navigateTo(3, settingsPage)
                     }
                 }
-            }
 
-            // 选中背景（独立元素，实现跨按钮移动动画）
-            Rectangle {
-                id: selectionBackground
-                width: 40
-                height: 40
-                radius: 6
-                color: selectedColor
-                x: (sideBar.width - width) / 2
-                opacity: 0.8
+                // 选中指示器（放在最上层）
+                Rectangle {
+                    id: selectionIndicator
+                    width: 3
+                    height: 16
+                    radius: 1.5
+                    color: accentColor
+                    x: 0
+                    z: 2
 
-                // 计算背景的 Y 位置
-                y: {
-                    let targetBtn = getNavButton(currentNavIndex)
-                    if (targetBtn) {
-                        return targetBtn.y + navColumn.anchors.topMargin
+                    y: {
+                        let targetBtn = getNavButton(currentNavIndex)
+                        if (targetBtn) {
+                            return targetBtn.y + navColumn.anchors.topMargin + (targetBtn.height - height) / 2
+                        }
+                        return 8 + 12
                     }
-                    return 8  // 默认位置
-                }
 
-                // Y 位置动画
-                Behavior on y {
-                    NumberAnimation {
-                        duration: 200
-                        easing.type: Easing.OutCubic
+                    Behavior on y {
+                        NumberAnimation {
+                            duration: 200
+                            easing.type: Easing.OutCubic
+                        }
                     }
-                }
 
-                // 透明度动画
-                Behavior on opacity {
-                    NumberAnimation {
-                        duration: 150
-                        easing.type: Easing.OutCubic
+                    // 高度动画
+                    SequentialAnimation on height {
+                        id: indicatorHeightAnim
+                        running: false
+
+                        NumberAnimation {
+                            to: 8
+                            duration: 100
+                            easing.type: Easing.InCubic
+                        }
+                        NumberAnimation {
+                            to: 16
+                            duration: 100
+                            easing.type: Easing.OutCubic
+                        }
                     }
                 }
             }
@@ -193,6 +191,7 @@ ApplicationWindow {
             id: stackView
             Layout.fillWidth: true
             Layout.fillHeight: true
+            clip: true  // 防止页面滑动动画溢出影响布局
             initialItem: transcribePage
 
             replaceEnter: Transition {
@@ -301,7 +300,14 @@ ApplicationWindow {
         id: navBtn
         Layout.preferredWidth: 40
         Layout.preferredHeight: 40
+        Layout.minimumWidth: 40
+        Layout.maximumWidth: 40
+        Layout.minimumHeight: 40
+        Layout.maximumHeight: 40
         Layout.alignment: Qt.AlignHCenter
+        implicitWidth: 40
+        implicitHeight: 40
+        clip: true  // 防止缩放溢出影响布局
 
         required property int navIndex
         property string iconSource: ""
@@ -321,78 +327,35 @@ ApplicationWindow {
             }
             visible: !navBtn.isSelected
 
-            Behavior on color {
-                ColorAnimation { duration: 100; easing.type: Easing.OutCubic }
-            }
         }
 
-        // 图标
-        Image {
-            id: icon
+        // 图标容器（用于缩放动画）
+        Item {
+            id: iconContainer
             anchors.centerIn: parent
             width: 20
             height: 20
-            source: navBtn.iconSource
-            sourceSize: Qt.size(20, 20)
-            fillMode: Image.PreserveAspectFit
-            smooth: true
-            antialiasing: true
-            visible: false
-        }
 
-        // 图标颜色着色
-        MultiEffect {
-            id: iconEffect
-            source: icon
-            anchors.fill: icon
-            colorization: 1.0
-            colorizationColor: navBtn.isSelected ? iconColor : iconSecondaryColor
+            // 缩放动画
+            scale: navBtn.isSelected ? 1.3 : 1.0
 
-            // 图标颜色渐变动画
-            Behavior on colorizationColor {
-                ColorAnimation { duration: 150; easing.type: Easing.OutCubic }
-            }
-        }
-
-        // 选中时图标缩放动画
-        transform: Scale {
-            id: iconScale
-            origin.x: navBtn.width / 2
-            origin.y: navBtn.height / 2
-            xScale: 1.0
-            yScale: 1.0
-        }
-
-        // 选中状态变化时的缩放动画
-        states: State {
-            name: "selected"
-            when: navBtn.isSelected
-            PropertyChanges {
-                target: iconScale
-                xScale: 1.0
-                yScale: 1.0
-            }
-        }
-
-        transitions: Transition {
-            from: ""
-            to: "selected"
-            reversible: true
-            SequentialAnimation {
+            Behavior on scale {
                 NumberAnimation {
-                    target: iconScale
-                    properties: "xScale,yScale"
-                    to: 1.15
-                    duration: 100
+                    duration: 150
                     easing.type: Easing.OutCubic
                 }
-                NumberAnimation {
-                    target: iconScale
-                    properties: "xScale,yScale"
-                    to: 1.0
-                    duration: 100
-                    easing.type: Easing.InOutCubic
-                }
+            }
+
+            // 图标 - 直接显示，使用较大的 sourceSize 保证清晰度
+            Image {
+                id: icon
+                anchors.fill: parent
+                source: navBtn.iconSource
+                sourceSize: Qt.size(40, 40)  // 2x 尺寸确保高清
+                fillMode: Image.PreserveAspectFit
+                smooth: true
+                antialiasing: true
+                // 图标颜色保持一致，不随选中状态变化
             }
         }
 
