@@ -3,6 +3,7 @@ ASR Interface Module
 提供面向对象的语音识别接口
 """
 
+import math
 import time
 import torch
 import warnings
@@ -27,6 +28,7 @@ warnings.filterwarnings("ignore", message=".*pad_token_id.*")
 
 class ModelStatus(Enum):
     """模型状态枚举"""
+
     NOT_LOADED = "未加载"
     LOADING = "加载中"
     READY = "就绪"
@@ -36,14 +38,16 @@ class ModelStatus(Enum):
 
 class QuantizationMode(Enum):
     """量化模式枚举"""
-    NONE = "fp16"      # 无量化，使用 fp16
-    INT8 = "int8"      # 8-bit 量化
-    INT4 = "int4"      # 4-bit 量化
-    AUTO = "auto"      # 自动选择
+
+    NONE = "fp16"  # 无量化，使用 fp16
+    INT8 = "int8"  # 8-bit 量化
+    INT4 = "int4"  # 4-bit 量化
+    AUTO = "auto"  # 自动选择
 
 
 class Language(Enum):
     """语言类型枚举"""
+
     CHINESE = "Chinese"
     ENGLISH = "English"
     CANTONESE = "Cantonese"
@@ -61,21 +65,22 @@ class Language(Enum):
 # 基于 Qwen3-ASR-1.7B + Forced Aligner 模型估算
 # 注意：KV cache 和激活值在推理时仍使用 fp16，需要额外显存
 VRAM_REQUIREMENTS = {
-    QuantizationMode.NONE: 6.0,   # fp16: ~3.4GB ASR + ~1.2GB Aligner + 1.4GB 推理开销
-    QuantizationMode.INT8: 4.5,   # int8: ~1.7GB ASR + ~1.2GB Aligner + 1.6GB 推理开销(KV cache仍fp16)
-    QuantizationMode.INT4: 3.5,   # int4: ~0.85GB ASR + ~1.2GB Aligner + 1.45GB 推理开销
+    QuantizationMode.NONE: 6.0,  # fp16: ~3.4GB ASR + ~1.2GB Aligner + 1.4GB 推理开销
+    QuantizationMode.INT8: 4.5,  # int8: ~1.7GB ASR + ~1.2GB Aligner + 1.6GB 推理开销(KV cache仍fp16)
+    QuantizationMode.INT4: 3.5,  # int4: ~0.85GB ASR + ~1.2GB Aligner + 1.45GB 推理开销
 }
 
 
 @dataclass
 class ASRConfig:
     """ASR 配置"""
+
     asr_model_path: str = str(paths.ASR_MODEL_DIR)
     aligner_model_path: str = str(paths.FORCED_ALIGNER_MODEL_DIR)
     dtype: torch.dtype = torch.float16
     device: str = "cuda:0"
     max_inference_batch_size: int = 32
-    max_new_tokens: int = 256
+    max_new_tokens: int = -1
     segment_duration: float = 15.0  # 分段时长（秒）
     sample_rate: int = 16000
     # 量化相关配置
@@ -88,6 +93,20 @@ class ASRConfig:
     inference_delay: float = 0.0
     # 是否启用低优先级模式（减少对其他 GPU 任务的影响）
     low_priority_mode: bool = False
+
+    @property
+    def effective_max_new_tokens(self) -> int:
+        """获取有效的最大生成 token 数。
+
+        如果 max_new_tokens 为 -1，则根据分段时长自动计算（1秒 = 18 token，向上取整）。
+        否则使用用户设置的值。
+
+        Returns:
+            计算后的最大生成 token 数
+        """
+        if self.max_new_tokens == -1:
+            return math.ceil(self.segment_duration * 18)
+        return self.max_new_tokens
 
 
 class ASRInterface:
@@ -122,11 +141,11 @@ class ASRInterface:
             for r in results:
                 print(r.language, r.duration)
     """
-    
+
     def __init__(self, config: Optional[ASRConfig] = None):
         """
         初始化 ASR 接口
-        
+
         Args:
             config: ASR 配置，如果为 None 则使用默认配置
         """
@@ -136,55 +155,59 @@ class ASRInterface:
         self._media_handler = MediaHandler(default_sample_rate=self.config.sample_rate)
         self._hardware = Hardware()  # 硬件信息检测器
         self._last_audio: Optional[AudioData] = None  # 缓存最后加载的音频
-        self._actual_quantization_mode: Optional[QuantizationMode] = None  # 实际使用的量化模式
-        
+        self._actual_quantization_mode: Optional[QuantizationMode] = (
+            None  # 实际使用的量化模式
+        )
+
         # 应用低优先级模式
         if self.config.low_priority_mode:
             self._apply_low_priority_mode()
-        
+
         logger.info("ASR 接口初始化完成")
-        logger.debug(f"配置: ASR模型={self.config.asr_model_path}, 对齐器={self.config.aligner_model_path}")
-    
+        logger.debug(
+            f"配置: ASR模型={self.config.asr_model_path}, 对齐器={self.config.aligner_model_path}"
+        )
+
     @property
     def status(self) -> ModelStatus:
         """获取当前模型状态"""
         return self._status
-    
+
     @property
     def is_ready(self) -> bool:
         """检查模型是否就绪"""
         return self._status == ModelStatus.READY
-    
+
     @property
     def actual_quantization_mode(self) -> Optional[QuantizationMode]:
         """获取实际使用的量化模式"""
         return self._actual_quantization_mode
-    
+
     def load_model(self) -> None:
         """加载模型（支持自动量化降级）"""
         if self._status == ModelStatus.READY:
             logger.warning("模型已加载，跳过重复加载")
             return
-        
+
         self._status = ModelStatus.LOADING
         logger.info("开始加载 ASR 模型...")
-        
+
         # 确定量化模式
         quantization_mode = self._determine_quantization_mode()
         self._actual_quantization_mode = quantization_mode
-        
+
         # 打印加载参数
         self._log_loading_params(quantization_mode)
-        
+
         try:
             # 构建模型加载参数
             model_kwargs = self._build_model_kwargs(quantization_mode)
-            
+
             self._model = Qwen3ASRModel.from_pretrained(**model_kwargs)
             self._status = ModelStatus.READY
             logger.success("模型加载完成")
             self._log_gpu_status()
-            
+
         except torch.cuda.OutOfMemoryError as e:
             # 如果 OOM 且还能降级，尝试降级
             lower_mode = self._get_lower_quantization_mode(quantization_mode)
@@ -203,7 +226,7 @@ class ASRInterface:
             self._status = ModelStatus.ERROR
             logger.error(f"模型加载失败: {e}")
             raise
-    
+
     def unload_model(self) -> None:
         """卸载模型释放显存"""
         if self._model is not None:
@@ -212,7 +235,7 @@ class ASRInterface:
             torch.cuda.empty_cache()
             self._status = ModelStatus.NOT_LOADED
             logger.info("模型已卸载，显存已释放")
-    
+
     def transcribe(
         self,
         audio_input: Union[str, AudioData],
@@ -221,24 +244,24 @@ class ASRInterface:
     ) -> TranscriptionResult:
         """
         转录音频文件
-        
+
         Args:
             audio_input: 音频文件路径或 AudioData 对象
             return_time_stamps: 是否返回时间戳
             show_progress: 是否显示进度条
-            
+
         Returns:
             转录结果
         """
         if not self.is_ready:
             logger.warning("模型未加载，正在自动加载...")
             self.load_model()
-        
+
         if self._model is None:
             raise RuntimeError("模型未加载，无法进行转录")
-        
+
         self._status = ModelStatus.PROCESSING
-        
+
         try:
             # 加载音频（支持路径或 AudioData）
             if isinstance(audio_input, str):
@@ -247,31 +270,34 @@ class ASRInterface:
             else:
                 logger.info(f"开始转录: AudioData ({audio_input.duration:.1f}秒)")
                 audio = audio_input
-            
+
             # 缓存音频供后续使用（如 VAD）
             self._last_audio = audio
             total_duration = audio.duration
-            
+
             # 分段处理
-            segments = self._media_handler.segment_with_tuples(audio, self.config.segment_duration)
-            
+            segments = self._media_handler.segment_with_tuples(
+                audio, self.config.segment_duration
+            )
+
             # 逐段处理
             all_texts = []
             all_timestamps = []
             time_offset = 0.0
             detected_language = None
-            
+
             iterator = tqdm(segments, desc="转录进度") if show_progress else segments
-            
+
             for segment in iterator:
                 try:
                     result = self._model.transcribe(
-                        audio=segment,
-                        return_time_stamps=return_time_stamps
+                        audio=segment, return_time_stamps=return_time_stamps
                     )
                 except torch.cuda.OutOfMemoryError as oom_error:
                     # 推理时 OOM，尝试降级量化模式
-                    current_mode = self._actual_quantization_mode or QuantizationMode.NONE
+                    current_mode = (
+                        self._actual_quantization_mode or QuantizationMode.NONE
+                    )
                     lower_mode = self._get_lower_quantization_mode(current_mode)
                     if lower_mode is not None:
                         logger.warning(
@@ -283,65 +309,71 @@ class ASRInterface:
                         self.config.quantization_mode = lower_mode
                         self.load_model()
                         # 重新开始转录（递归调用）
-                        return self.transcribe(audio_input, return_time_stamps, show_progress)
+                        return self.transcribe(
+                            audio_input, return_time_stamps, show_progress
+                        )
                     else:
                         logger.error("推理时显存不足，已是最低精度模式，无法继续降级")
                         raise oom_error
-                
+
                 segment_result = result[0]
                 all_texts.append(segment_result.text)
-                
+
                 if detected_language is None:
                     detected_language = segment_result.language
-                
+
                 # 处理时间戳
                 if return_time_stamps and segment_result.time_stamps:
                     for item in segment_result.time_stamps:
-                        all_timestamps.append(TimeStampItem(
-                            text=item.text,
-                            start_time=item.start_time + time_offset,
-                            end_time=item.end_time + time_offset
-                        ))
-                
+                        all_timestamps.append(
+                            TimeStampItem(
+                                text=item.text,
+                                start_time=item.start_time + time_offset,
+                                end_time=item.end_time + time_offset,
+                            )
+                        )
+
                 time_offset += self.config.segment_duration
-                
+
                 # 算力限制：在每个段推理后添加延迟，让 GPU 有时间处理其他任务
                 if self.config.inference_delay > 0:
                     # 确保 GPU 操作完成
                     torch.cuda.synchronize()
                     # 添加延迟
                     time.sleep(self.config.inference_delay)
-            
+
             self._status = ModelStatus.READY
-            
+
             result = TranscriptionResult(
                 language=detected_language or "unknown",
                 text="".join(all_texts),
                 time_stamps=all_timestamps if all_timestamps else None,
-                duration=total_duration
+                duration=total_duration,
             )
-            
-            logger.success(f"转录完成: 语言={result.language}, 时长={result.duration:.1f}秒, 文字长度={len(result.text)}")
+
+            logger.success(
+                f"转录完成: 语言={result.language}, 时长={result.duration:.1f}秒, 文字长度={len(result.text)}"
+            )
             self._log_gpu_status()
-            
+
             return result
-            
+
         except Exception as e:
             self._status = ModelStatus.ERROR
             logger.error(f"转录失败: {e}")
             raise
-    
+
     def get_last_audio(self) -> Optional[AudioData]:
         """
         获取最后转录的音频数据
-        
+
         用于 VAD 等后续处理，避免重复加载音频
-        
+
         Returns:
             AudioData 对象，如果未转录过则返回 None
         """
         return self._last_audio
-    
+
     @property
     def media_handler(self) -> MediaHandler:
         """获取媒体处理器实例"""
@@ -355,22 +387,22 @@ class ASRInterface:
     ) -> List[TranscriptionResult]:
         """
         批量转录多个音频文件
-        
+
         Args:
             audio_paths: 音频文件路径列表
             return_time_stamps: 是否返回时间戳
             show_progress: 是否显示进度条
-            
+
         Returns:
             转录结果列表
         """
         results = []
-        
+
         for i, audio_path in enumerate(audio_paths):
-            logger.info(f"处理文件 {i+1}/{len(audio_paths)}: {audio_path}")
+            logger.info(f"处理文件 {i + 1}/{len(audio_paths)}: {audio_path}")
             result = self.transcribe(audio_path, return_time_stamps, show_progress)
             results.append(result)
-        
+
         logger.success(f"批量转录完成: 共 {len(results)} 个文件")
         return results
 
@@ -464,7 +496,10 @@ class ASRInterface:
 
             # 使用模型内置的强制对齐器进行对齐
             # Qwen3ASRModel 在初始化时已加载 forced_aligner
-            if not hasattr(self._model, 'forced_aligner') or self._model.forced_aligner is None:
+            if (
+                not hasattr(self._model, "forced_aligner")
+                or self._model.forced_aligner is None
+            ):
                 raise RuntimeError(
                     "强制对齐器未加载。请确保在配置中指定了 aligner_model_path"
                 )
@@ -485,11 +520,13 @@ class ASRInterface:
             time_stamps: List[TimeStampItem] = []
             if align_results and len(align_results) > 0:
                 for item in align_results[0]:
-                    time_stamps.append(TimeStampItem(
-                        text=item.text,
-                        start_time=item.start_time,
-                        end_time=item.end_time
-                    ))
+                    time_stamps.append(
+                        TimeStampItem(
+                            text=item.text,
+                            start_time=item.start_time,
+                            end_time=item.end_time,
+                        )
+                    )
 
             self._status = ModelStatus.READY
 
@@ -500,7 +537,7 @@ class ASRInterface:
                 text=text,
                 language=language_display,
                 time_stamps=time_stamps,
-                audio_duration=audio_duration
+                audio_duration=audio_duration,
             )
 
             logger.success(
@@ -553,7 +590,7 @@ class ASRInterface:
                     ("audio2.wav", "你好世界"),
                 ]
                 results = asr.align_batch(
-                    items, 
+                    items,
                     language=[Language.ENGLISH, Language.CHINESE]
                 )
                 for i, result in enumerate(results):
@@ -562,18 +599,18 @@ class ASRInterface:
         results: List[AlignmentResult] = []
 
         for i, (audio_input, text) in enumerate(items):
-            logger.info(f"对齐进度 {i+1}/{len(items)}")
+            logger.info(f"对齐进度 {i + 1}/{len(items)}")
             result = self.align(audio_input, text, language)
             results.append(result)
 
         logger.success(f"批量对齐完成: 共 {len(results)} 个文件")
         return results
-    
+
     def __enter__(self):
         """上下文管理器入口"""
         self.load_model()
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         """上下文管理器退出"""
         self.unload_model()
@@ -582,13 +619,15 @@ class ASRInterface:
 
     def _get_device_id(self) -> int:
         """从设备字符串解析设备 ID"""
-        return int(self.config.device.split(":")[-1]) if ":" in self.config.device else 0
+        return (
+            int(self.config.device.split(":")[-1]) if ":" in self.config.device else 0
+        )
 
     def _log_gpu_status(self) -> None:
         """记录 GPU 状态"""
         device_id = self._get_device_id()
         status = self._hardware.get_gpu_memory_status(device_id)
-        
+
         if status.get("available"):
             logger.info(
                 f"GPU 显存状态: 已分配 {status['allocated_gb']:.2f}GB / "
@@ -598,7 +637,7 @@ class ASRInterface:
     def _get_available_vram(self) -> float:
         """
         获取当前可用的 GPU 显存（GB）
-        
+
         Returns:
             可用显存（GB），如果无 GPU 返回 0
         """
@@ -608,58 +647,60 @@ class ASRInterface:
     def _apply_low_priority_mode(self) -> None:
         """
         应用低优先级模式，降低进程优先级和 GPU 调度优先级
-        
+
         这可以减少对其他 GPU 任务（如游戏）的影响
         """
         import platform
         import os
-        
+
         system = platform.system()
-        
+
         try:
             if system == "Windows":
                 import ctypes
-                
+
                 # 设置进程优先级为 BELOW_NORMAL (低于正常)
                 # BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
                 # IDLE_PRIORITY_CLASS = 0x00000040 (更低)
                 BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
-                
+
                 kernel32 = ctypes.windll.kernel32
                 handle = kernel32.GetCurrentProcess()
                 kernel32.SetPriorityClass(handle, BELOW_NORMAL_PRIORITY_CLASS)
-                
+
                 logger.info("已启用低优先级模式：进程优先级设置为 BELOW_NORMAL")
-                
+
             elif system in ("Linux", "Darwin"):
                 # Unix: 使用 nice 值 (0-19, 值越大优先级越低)
                 os.nice(10)  # type: ignore[attr-defined]
                 logger.info("已启用低优先级模式：nice 值设置为 10")
-                
+
         except Exception as e:
             logger.warning(f"无法设置低优先级模式: {e}")
 
     def _determine_quantization_mode(self) -> QuantizationMode:
         """
         根据配置和可用显存确定量化模式
-        
+
         Returns:
             最终确定的量化模式
         """
         configured_mode = self.config.quantization_mode
-        
+
         # 如果不是自动模式，直接返回配置的模式
         if configured_mode != QuantizationMode.AUTO:
             logger.info(f"使用配置的量化模式: {configured_mode.value}")
             return configured_mode
-        
+
         # 自动模式：根据可用显存选择
         available_vram = self._get_available_vram()
         safety_margin = self.config.auto_quantization_safety_margin
         usable_vram = available_vram - safety_margin
-        
-        logger.info(f"自动量化模式: 可用显存 {available_vram:.2f}GB, 安全余量 {safety_margin:.2f}GB, 可用于模型 {usable_vram:.2f}GB")
-        
+
+        logger.info(
+            f"自动量化模式: 可用显存 {available_vram:.2f}GB, 安全余量 {safety_margin:.2f}GB, 可用于模型 {usable_vram:.2f}GB"
+        )
+
         # 按优先级选择量化模式（优先选择精度更高的）
         if usable_vram >= VRAM_REQUIREMENTS[QuantizationMode.NONE]:
             selected_mode = QuantizationMode.NONE
@@ -677,16 +718,18 @@ class ASRInterface:
                 f"显存极度不足（可用 {usable_vram:.2f}GB，需要至少 {VRAM_REQUIREMENTS[QuantizationMode.INT4]:.2f}GB），"
                 f"强制使用 {selected_mode.value} 量化模式，可能会失败"
             )
-        
+
         return selected_mode
 
-    def _convert_language_to_api_format(self, language: Union[Language, List[Language]]) -> Union[str, List[str]]:
+    def _convert_language_to_api_format(
+        self, language: Union[Language, List[Language]]
+    ) -> Union[str, List[str]]:
         """
         将 Language 枚举转换为 API 所需的格式
-        
+
         Args:
             language: 单个语言枚举或语言枚举列表
-            
+
         Returns:
             单个语言字符串或语言字符串列表
         """
@@ -697,13 +740,15 @@ class ASRInterface:
         else:
             raise TypeError(f"不支持的语言类型: {type(language)}")
 
-    def _format_language_for_display(self, language: Union[Language, List[Language]]) -> str:
+    def _format_language_for_display(
+        self, language: Union[Language, List[Language]]
+    ) -> str:
         """
         格式化语言参数用于日志和结果显示
-        
+
         Args:
             language: 单个语言枚举或语言枚举列表
-            
+
         Returns:
             格式化的语言字符串
         """
@@ -714,37 +759,43 @@ class ASRInterface:
         else:
             return str(language)
 
-    def _get_lower_quantization_mode(self, current_mode: QuantizationMode) -> Optional[QuantizationMode]:
+    def _get_lower_quantization_mode(
+        self, current_mode: QuantizationMode
+    ) -> Optional[QuantizationMode]:
         """
         获取更低精度的量化模式（用于降级）
-        
+
         Args:
             current_mode: 当前量化模式
-            
+
         Returns:
             更低精度的模式，如果已是最低则返回 None
         """
-        degradation_order = [QuantizationMode.NONE, QuantizationMode.INT8, QuantizationMode.INT4]
-        
+        degradation_order = [
+            QuantizationMode.NONE,
+            QuantizationMode.INT8,
+            QuantizationMode.INT4,
+        ]
+
         if current_mode == QuantizationMode.AUTO:
             current_mode = QuantizationMode.NONE
-        
+
         try:
             current_idx = degradation_order.index(current_mode)
             if current_idx < len(degradation_order) - 1:
                 return degradation_order[current_idx + 1]
         except ValueError:
             pass
-        
+
         return None
 
     def _build_model_kwargs(self, quantization_mode: QuantizationMode) -> dict:
         """
         构建模型加载参数
-        
+
         Args:
             quantization_mode: 量化模式
-            
+
         Returns:
             模型加载参数字典
         """
@@ -752,14 +803,14 @@ class ASRInterface:
             "pretrained_model_name_or_path": self.config.asr_model_path,
             "device_map": self.config.device,
             "max_inference_batch_size": self.config.max_inference_batch_size,
-            "max_new_tokens": self.config.max_new_tokens,
+            "max_new_tokens": self.config.effective_max_new_tokens,
             "forced_aligner": self.config.aligner_model_path,
             "forced_aligner_kwargs": dict(
                 dtype=self.config.dtype,
                 device_map=self.config.device,
             ),
         }
-        
+
         # 根据量化模式设置参数
         if quantization_mode == QuantizationMode.NONE:
             base_kwargs["dtype"] = self.config.dtype
@@ -767,13 +818,13 @@ class ASRInterface:
             base_kwargs["load_in_8bit"] = True
         elif quantization_mode == QuantizationMode.INT4:
             base_kwargs["load_in_4bit"] = True
-        
+
         return base_kwargs
 
     def _log_loading_params(self, quantization_mode: QuantizationMode) -> None:
         """
         打印模型加载参数
-        
+
         Args:
             quantization_mode: 量化模式
         """
@@ -784,24 +835,26 @@ class ASRInterface:
         logger.debug(f"  对齐器模型路径: {self.config.aligner_model_path}")
         logger.debug(f"  设备: {self.config.device}")
         logger.debug(f"  量化模式: {quantization_mode.value}")
-        
+
         if quantization_mode == QuantizationMode.NONE:
             logger.debug(f"  数据类型: {self.config.dtype}")
         elif quantization_mode == QuantizationMode.INT8:
             logger.debug("  数据类型: 8-bit 量化")
         elif quantization_mode == QuantizationMode.INT4:
             logger.debug("  数据类型: 4-bit 量化")
-        
+
         logger.debug(f"  最大推理批大小: {self.config.max_inference_batch_size}")
-        logger.debug(f"  最大生成 tokens: {self.config.max_new_tokens}")
+        logger.debug(f"  最大生成 tokens: {self.config.effective_max_new_tokens}")
         logger.debug(f"  分段时长: {self.config.segment_duration}秒")
         logger.debug(f"  采样率: {self.config.sample_rate}Hz")
-        
+
         # 算力限制参数
         if self.config.inference_delay > 0 or self.config.low_priority_mode:
             logger.debug("-" * 50)
             logger.debug("算力限制（后台模式）")
             logger.debug(f"  推理间隔延迟: {self.config.inference_delay}秒")
-            logger.debug(f"  低优先级模式: {'启用' if self.config.low_priority_mode else '禁用'}")
-        
+            logger.debug(
+                f"  低优先级模式: {'启用' if self.config.low_priority_mode else '禁用'}"
+            )
+
         logger.debug("=" * 50)

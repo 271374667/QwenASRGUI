@@ -3,9 +3,12 @@ Media Handler Module
 提供音频文件加载与处理功能，支持从视频文件提取音频
 """
 
+import math
+
 import librosa
 import numpy as np
 import audioread
+
 try:
     import soundfile as sf
 except Exception:  # pragma: no cover - optional dependency
@@ -34,24 +37,25 @@ VIDEO_EXTENSIONS: Set[str] = {".mp4", ".mkv", ".mov", ".avi", ".webm", ".flv", "
 @dataclass
 class AudioData:
     """音频数据容器"""
+
     data: np.ndarray  # 音频波形数据
     sample_rate: int  # 采样率
     path: Optional[str] = None  # 源文件路径
-    
+
     @property
     def duration(self) -> float:
         """音频时长（秒）"""
         return len(self.data) / self.sample_rate
-    
+
     @property
     def num_samples(self) -> int:
         """样本数"""
         return len(self.data)
-    
+
     def to_tuple(self) -> Tuple[np.ndarray, int]:
         """转换为 (data, sample_rate) 元组"""
         return (self.data, self.sample_rate)
-    
+
     def __repr__(self) -> str:
         return f"AudioData(duration={self.duration:.2f}s, sr={self.sample_rate}, samples={self.num_samples})"
 
@@ -72,10 +76,12 @@ class MediaHandler:
     - load(path, sample_rate=16000): 加载音频或视频文件
     - load_from_video(path, sample_rate): 从视频文件提取音频
     - load_from_array(data, sample_rate): 从 numpy 数组创建 AudioData
+    - get_video_duration(path): 获取视频时长（秒，向上取整）
     - segment(audio, segment_duration): 将音频分段
     - resample(audio, target_sr): 重采样音频
     - clear_cache(): 清除已加载的音频缓存
     - is_video_file(path): 检查文件是否为视频格式
+    - is_audio_file(path): 检查文件是否为音频格式
 
     典型示例：
         handler = MediaHandler()
@@ -90,23 +96,23 @@ class MediaHandler:
         segments = handler.segment(audio, segment_duration=15.0)
         print(f"分段数: {len(segments)}")
     """
-    
+
     def __init__(self, default_sample_rate: int = 16000):
         """
         初始化媒体处理器
-        
+
         Args:
             default_sample_rate: 默认采样率
         """
         self.default_sample_rate = default_sample_rate
         self._cache: dict[str, AudioData] = {}
         logger.debug(f"MediaHandler 初始化: 默认采样率={default_sample_rate}Hz")
-    
+
     def load(
         self,
         path: Union[str, Path],
         sample_rate: Optional[int] = None,
-        use_cache: bool = True
+        use_cache: bool = True,
     ) -> AudioData:
         """
         加载音频或视频文件
@@ -186,7 +192,7 @@ class MediaHandler:
         self,
         path: Union[str, Path],
         sample_rate: Optional[int] = None,
-        use_cache: bool = True
+        use_cache: bool = True,
     ) -> AudioData:
         """
         从视频文件提取音频
@@ -225,6 +231,35 @@ class MediaHandler:
             self._cache[cache_key] = audio
 
         return audio
+
+    def get_video_duration(self, path: Union[str, Path]) -> int:
+        """
+        获取视频文件时长
+
+        Args:
+            path: 视频文件路径
+
+        Returns:
+            视频时长（秒），向上取整
+
+        Raises:
+            ValueError: 如果文件不是支持的视频格式
+        """
+        path_str = str(path)
+
+        if not self.is_video_file(path):
+            raise ValueError(
+                f"不支持的视频格式: {Path(path).suffix}，"
+                f"支持的格式: {', '.join(VIDEO_EXTENSIONS)}"
+            )
+
+        try:
+            audio_segment = AudioSegment.from_file(path_str)
+            duration_seconds = audio_segment.duration_seconds
+            return math.ceil(duration_seconds)
+        except Exception as e:
+            logger.error(f"获取视频时长失败: {path_str}, 错误: {e}")
+            raise
 
     def _load_from_video(self, path_str: str, target_sr: int) -> AudioData:
         """
@@ -291,124 +326,124 @@ class MediaHandler:
         if data.ndim == 1:
             return data
         return data.mean(axis=1)
-    
+
     def load_from_array(
-        self,
-        data: np.ndarray,
-        sample_rate: int,
-        path: Optional[str] = None
+        self, data: np.ndarray, sample_rate: int, path: Optional[str] = None
     ) -> AudioData:
         """
         从 numpy 数组创建 AudioData
-        
+
         Args:
             data: 音频波形数据
             sample_rate: 采样率
             path: 可选的源文件路径标识
-            
+
         Returns:
             AudioData 对象
         """
         return AudioData(data=data, sample_rate=sample_rate, path=path)
-    
+
     def segment(
-        self,
-        audio: AudioData,
-        segment_duration: float = 15.0
+        self, audio: AudioData, segment_duration: float = 15.0
     ) -> List[AudioData]:
         """
         将音频分段
-        
+
         Args:
             audio: 音频数据
             segment_duration: 每段时长（秒）
-            
+
         Returns:
             分段后的 AudioData 列表
         """
         segment_samples = int(segment_duration * audio.sample_rate)
         segments = []
-        
+
         for start in range(0, audio.num_samples, segment_samples):
             end = min(start + audio.num_samples, audio.num_samples)
             segment_data = audio.data[start:end]
-            segments.append(AudioData(
-                data=segment_data,
-                sample_rate=audio.sample_rate,
-                path=audio.path
-            ))
-        
+            segments.append(
+                AudioData(
+                    data=segment_data, sample_rate=audio.sample_rate, path=audio.path
+                )
+            )
+
         logger.debug(f"音频分段完成: {len(segments)} 段 (每段 {segment_duration}秒)")
         return segments
-    
+
     def segment_with_tuples(
-        self,
-        audio: AudioData,
-        segment_duration: float = 15.0
+        self, audio: AudioData, segment_duration: float = 15.0
     ) -> List[Tuple[np.ndarray, int]]:
         """
         将音频分段并返回 (data, sample_rate) 元组列表
-        
+
         用于兼容需要元组格式的 API
-        
+
         Args:
             audio: 音频数据
             segment_duration: 每段时长（秒）
-            
+
         Returns:
             分段后的 (data, sample_rate) 元组列表
         """
         segment_samples = int(segment_duration * audio.sample_rate)
         segments = []
-        
+
         for start in range(0, audio.num_samples, segment_samples):
             end = min(start + segment_samples, audio.num_samples)
             segment_data = audio.data[start:end]
             segments.append((segment_data, audio.sample_rate))
-        
+
         logger.debug(f"音频分段完成: {len(segments)} 段 (每段 {segment_duration}秒)")
         return segments
-    
-    def resample(
-        self,
-        audio: AudioData,
-        target_sr: int
-    ) -> AudioData:
+
+    def resample(self, audio: AudioData, target_sr: int) -> AudioData:
         """
         重采样音频
-        
+
         Args:
             audio: 音频数据
             target_sr: 目标采样率
-            
+
         Returns:
             重采样后的 AudioData
         """
         if audio.sample_rate == target_sr:
             return audio
-        
+
         logger.debug(f"重采样: {audio.sample_rate}Hz -> {target_sr}Hz")
         resampled = librosa.resample(
-            audio.data,
-            orig_sr=audio.sample_rate,
-            target_sr=target_sr
+            audio.data, orig_sr=audio.sample_rate, target_sr=target_sr
         )
-        
-        return AudioData(
-            data=resampled,
-            sample_rate=target_sr,
-            path=audio.path
-        )
-    
+
+        return AudioData(data=resampled, sample_rate=target_sr, path=audio.path)
+
     def clear_cache(self) -> None:
         """清除音频缓存"""
         count = len(self._cache)
         self._cache.clear()
         logger.debug(f"已清除 {count} 个缓存条目")
-    
+
     def get_cache_info(self) -> dict:
         """获取缓存信息"""
-        return {
-            "count": len(self._cache),
-            "keys": list(self._cache.keys())
-        }
+        return {"count": len(self._cache), "keys": list(self._cache.keys())}
+
+
+if __name__ == "__main__":
+    # 简单测试 MediaHandler
+    handler = MediaHandler()
+    audio_path = (
+        r"D:\Games\OBS录像\sqlalchemy2.0\001原视频\004数据库增删改查2(补充).mkv"
+    )
+
+    try:
+        audio = handler.load(audio_path)
+        print(f"加载音频: {audio}")
+
+        segments = handler.segment(audio, segment_duration=10.0)
+        print(handler.get_video_duration(audio_path))
+        print(f"分段数: {len(segments)}")
+        for i, seg in enumerate(segments):
+            print(f"段 {i + 1}: {seg}")
+    except Exception as e:
+        print(f"错误: {e}")

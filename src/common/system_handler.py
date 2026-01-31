@@ -5,6 +5,8 @@
 """
 
 import os
+import warnings
+
 
 from dataclasses import dataclass, field
 from typing import Optional
@@ -13,6 +15,12 @@ from loguru import logger
 
 from src.utils.hardware import Hardware, HardwareSummary
 from src.utils.memory_limit import MemoryLimit, MemoryLimitConfig, MemoryLimitError
+
+# 抑制 Windows 平台不支持 expandable_segments 的警告
+warnings.filterwarnings(
+    "ignore",
+    message=".*expandable_segments not supported on this platform.*",
+)
 
 
 @dataclass
