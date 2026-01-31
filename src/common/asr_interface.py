@@ -225,9 +225,10 @@ class ASRInterface:
         if self._actual_model_size is not None:
             return MODEL_NAMES.get(self._actual_model_size, "Unknown")
         # 根据配置的模型路径判断
-        if self.config.model_size == ModelSize.SMALL or str(
-            paths.ASR_SMALL_MODEL_DIR
-        ) in self.config.asr_model_path:
+        if (
+            self.config.model_size == ModelSize.SMALL
+            or str(paths.ASR_SMALL_MODEL_DIR) in self.config.asr_model_path
+        ):
             return MODEL_NAMES[ModelSize.SMALL]
         return MODEL_NAMES[ModelSize.LARGE]
 

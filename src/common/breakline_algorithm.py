@@ -22,10 +22,11 @@ from src.core.vo import TimeStampItem, AggregatedLine
 class GapDetectionMethod(Enum):
     """
     间隔检测方法
-    
+
     性能排序（快→慢）: FIXED > PERCENTILE ≈ IQR > OTSU > SILERO_VAD > CLUSTERING
     准确性排序（高→低）: SILERO_VAD ≈ CLUSTERING ≈ OTSU > IQR ≈ PERCENTILE > FIXED
     """
+
     FIXED_THRESHOLD = "fixed"  # 固定阈值 - O(1)，最快但需手动调参
     PERCENTILE = "percentile"  # 百分位数自适应 - O(n log n)，推荐
     IQR = "iqr"  # 四分位距 - O(n log n)，对离群值鲁棒
@@ -37,12 +38,13 @@ class GapDetectionMethod(Enum):
 @dataclass
 class VADConfig:
     """VAD 配置（默认针对汉语代码教学视频优化）"""
+
     # 检测参数
     threshold: float = 0.4  # 语音活动阈值 (0-1)，降低以捕获轻声讲解
     min_speech_duration_ms: int = 200  # 最小语音片段时长（毫秒），汉语单字发音较短
     min_silence_duration_ms: int = 150  # 最小静音片段时长（毫秒），代码讲解停顿较多
     speech_pad_ms: int = 50  # 语音片段前后填充（毫秒），增加以避免截断
-    
+
     # 采样率
     sample_rate: int = 16000  # 采样率（Silero VAD 支持 8000 或 16000）
 
@@ -50,21 +52,22 @@ class VADConfig:
 @dataclass
 class BreaklineConfig:
     """分行配置（默认针对汉语代码教学视频优化）"""
+
     # 间隔检测
     gap_detection_method: GapDetectionMethod = GapDetectionMethod.SILERO_VAD
     fixed_gap_threshold: float = 0.6  # 固定阈值方法的间隔阈值（秒），教学视频停顿多
     percentile_threshold: float = 70  # 百分位数方法的阈值，稍低以适应不均匀语速
     min_gap_threshold: float = 0.35  # 最小间隔阈值（秒），避免过度分割
-    
+
     # 长度限制
     max_chars_per_line: int = 20  # 每行最大字符数，汉语+少量英文术语适合 15-22 字
     max_duration_per_line: float = 5.0  # 每行最大时长（秒），缩短以提高字幕可读性
     min_chars_per_line: int = 4  # 每行最小字符数（避免碎片），汉语至少 4 字成句
-    
+
     # 合并选项
     merge_short_gaps: bool = True  # 是否合并短间隔
     merge_threshold: float = 0.15  # 合并阈值（秒），稍高以合并碎片
-    
+
     # VAD 配置（当使用 SILERO_VAD 方法时）
     vad_config: VADConfig = field(default_factory=VADConfig)
 
@@ -72,9 +75,10 @@ class BreaklineConfig:
 @dataclass
 class SpeechSegment:
     """语音片段"""
+
     start_time: float  # 开始时间（秒）
-    end_time: float    # 结束时间（秒）
-    
+    end_time: float  # 结束时间（秒）
+
     @property
     def duration(self) -> float:
         return self.end_time - self.start_time
@@ -83,46 +87,47 @@ class SpeechSegment:
 class SileroVAD:
     """
     Silero VAD 语音活动检测器
-    
+
     基于 silero-vad pip 包的语音活动检测，用于识别音频中的语音和静音片段。
     使用 ONNX 推理，无需 GPU，模型已包含在 pip 包中，无需额外下载。
-    
+
     用法概览：
     - 创建实例：可传入 VADConfig 指定检测参数
     - 检测：`detect()` 检测音频中的语音片段
     - 分割：`get_silence_segments()` 获取静音片段（用于分行）
-    
+
     公开方法：
     - detect(audio, sample_rate): 检测语音片段
     - get_silence_segments(audio, sample_rate): 获取静音片段
     - reset_states(): 重置模型内部状态
-    
+
     典型示例：
         vad = SileroVAD()
         speech_segments = vad.detect(audio_array, 16000)
         for seg in speech_segments:
             print(f"{seg.start_time:.2f}s - {seg.end_time:.2f}s")
     """
-    
+
     _model: Optional[Any] = None  # 类级别缓存模型
-    
+
     def __init__(self, config: Optional[VADConfig] = None):
         """
         初始化 Silero VAD
-        
+
         Args:
             config: VAD 配置，如果为 None 则使用默认配置
         """
         self.config = config or VADConfig()
         self._ensure_model_loaded()
         logger.debug(f"Silero VAD 初始化: 阈值={self.config.threshold}")
-    
+
     def _ensure_model_loaded(self) -> None:
         """确保模型已加载（使用类级别缓存）"""
         if SileroVAD._model is None:
             logger.info("加载 Silero VAD 模型...")
             try:
                 from silero_vad import load_silero_vad
+
                 SileroVAD._model = load_silero_vad()
                 logger.success("Silero VAD 模型加载完成")
             except ImportError:
@@ -131,36 +136,36 @@ class SileroVAD:
             except Exception as e:
                 logger.error(f"Silero VAD 模型加载失败: {e}")
                 raise
-    
+
     def detect(
-        self,
-        audio: np.ndarray,
-        sample_rate: int = 16000
+        self, audio: np.ndarray, sample_rate: int = 16000
     ) -> List[SpeechSegment]:
         """
         检测音频中的语音片段
-        
+
         Args:
             audio: 音频数据（numpy 数组，单声道）
             sample_rate: 采样率（支持 8000 或 16000）
-            
+
         Returns:
             语音片段列表
         """
         if len(audio) == 0:
             return []
-        
+
         # 确保采样率正确
         if sample_rate not in (8000, 16000):
-            logger.warning(f"不支持的采样率 {sample_rate}，Silero VAD 仅支持 8000 或 16000")
+            logger.warning(
+                f"不支持的采样率 {sample_rate}，Silero VAD 仅支持 8000 或 16000"
+            )
             return []
-        
+
         try:
             from silero_vad import get_speech_timestamps
-            
+
             # 转换为 torch tensor
             audio_tensor = torch.from_numpy(audio).float()
-            
+
             # 使用 silero-vad 的官方 API
             speech_timestamps = get_speech_timestamps(
                 audio_tensor,
@@ -171,70 +176,70 @@ class SileroVAD:
                 min_silence_duration_ms=self.config.min_silence_duration_ms,
                 speech_pad_ms=self.config.speech_pad_ms,
             )
-            
+
             # 转换为 SpeechSegment 列表
             segments = []
             for ts in speech_timestamps:
-                start_sec = ts['start'] / sample_rate
-                end_sec = ts['end'] / sample_rate
+                start_sec = ts["start"] / sample_rate
+                end_sec = ts["end"] / sample_rate
                 segments.append(SpeechSegment(start_time=start_sec, end_time=end_sec))
-            
+
             logger.debug(f"检测到 {len(segments)} 个语音片段")
             return segments
-            
+
         except Exception as e:
             logger.error(f"VAD 检测失败: {e}")
             return []
-    
+
     def get_silence_segments(
         self,
         audio: np.ndarray,
         sample_rate: int = 16000,
-        total_duration: Optional[float] = None
+        total_duration: Optional[float] = None,
     ) -> List[Tuple[float, float]]:
         """
         获取静音片段
-        
+
         Args:
             audio: 音频数据
             sample_rate: 采样率
             total_duration: 总时长（秒），如果为 None 则从音频计算
-            
+
         Returns:
             静音片段列表，每个元素为 (start_time, end_time)
         """
         if total_duration is None:
             total_duration = len(audio) / sample_rate
-        
+
         speech_segments = self.detect(audio, sample_rate)
-        
+
         if not speech_segments:
             return [(0.0, total_duration)]
-        
+
         silence_segments = []
-        
+
         # 开头的静音
         if speech_segments[0].start_time > 0:
             silence_segments.append((0.0, speech_segments[0].start_time))
-        
+
         # 语音片段之间的静音
         for i in range(len(speech_segments) - 1):
             current_end = speech_segments[i].end_time
             next_start = speech_segments[i + 1].start_time
             if next_start > current_end:
                 silence_segments.append((current_end, next_start))
-        
+
         # 结尾的静音
         if speech_segments[-1].end_time < total_duration:
             silence_segments.append((speech_segments[-1].end_time, total_duration))
-        
+
         return silence_segments
-    
+
     def reset_states(self) -> None:
         """重置模型内部状态"""
         if SileroVAD._model is not None:
             SileroVAD._model.reset_states()
-    
+
     @classmethod
     def unload_model(cls) -> None:
         """卸载模型释放内存"""
@@ -266,11 +271,11 @@ class BreaklineAlgorithm:
     - get_statistics(lines): 返回聚合统计信息
     - benchmark_methods(timestamps, n_runs=10): 不同方法性能对比
     """
-    
+
     def __init__(self, config: Optional[BreaklineConfig] = None):
         """
         初始化分行算法
-        
+
         Args:
             config: 分行配置，如果为 None 则使用默认配置
         """
@@ -278,94 +283,100 @@ class BreaklineAlgorithm:
         self._audio: Optional[np.ndarray] = None  # 音频数据（用于 VAD）
         self._sample_rate: int = 16000  # 采样率
         self._vad: Optional[SileroVAD] = None  # VAD 实例（延迟初始化）
-        logger.debug(f"分行算法初始化: 方法={self.config.gap_detection_method.value}, "
-                    f"最大字符数={self.config.max_chars_per_line}")
-    
+        logger.debug(
+            f"分行算法初始化: 方法={self.config.gap_detection_method.value}, "
+            f"最大字符数={self.config.max_chars_per_line}"
+        )
+
     def aggregate(self, timestamps: List[TimeStampItem]) -> List[AggregatedLine]:
         """
         聚合时间戳
-        
+
         Args:
             timestamps: 字/词级时间戳列表
-            
+
         Returns:
             聚合后的行列表
         """
         if not timestamps:
             return []
-        
+
         n = len(timestamps)
         if n == 1:
-            return [AggregatedLine(
-                text=timestamps[0].text,
-                start_time=timestamps[0].start_time,
-                end_time=timestamps[0].end_time,
-                word_count=1
-            )]
-        
+            return [
+                AggregatedLine(
+                    text=timestamps[0].text,
+                    start_time=timestamps[0].start_time,
+                    end_time=timestamps[0].end_time,
+                    word_count=1,
+                )
+            ]
+
         # 1. 向量化提取时间和文本信息
-        start_times, end_times, texts, char_lens = self._vectorize_timestamps(timestamps)
-        
+        start_times, end_times, texts, char_lens = self._vectorize_timestamps(
+            timestamps
+        )
+
         # 2. 向量化计算间隔
         gaps = self._calculate_gaps_vectorized(start_times, end_times)
-        
+
         # 3. 确定间隔阈值
         gap_threshold = self._determine_gap_threshold(gaps)
         logger.debug(f"间隔阈值: {gap_threshold:.3f}秒")
-        
+
         # 4. 向量化找出分割点
         break_indices = self._find_break_indices_vectorized(
             gaps, start_times, end_times, char_lens, gap_threshold
         )
-        
+
         # 5. 根据分割点创建分组
         groups = self._create_groups_from_indices(timestamps, break_indices)
-        
+
         # 6. 合并短片段（可选）
         if self.config.merge_short_gaps:
             groups = self._merge_short_segments(groups)
-        
+
         # 7. 生成聚合结果
         lines = self._create_aggregated_lines(groups)
-        
+
         logger.info(f"时间戳聚合完成: {n} 个词 → {len(lines)} 行")
-        
+
         return lines
-    
+
     def aggregate_with_audio(
         self,
         timestamps: List[TimeStampItem],
         audio: np.ndarray,
-        sample_rate: int = 16000
+        sample_rate: int = 16000,
     ) -> List[AggregatedLine]:
         """
         使用音频 VAD 检测进行聚合
-        
+
         结合 Silero VAD 检测静音片段，更准确地确定分行位置。
-        
+
         Args:
             timestamps: 字/词级时间戳列表
             audio: 音频数据（numpy 数组，单声道）
             sample_rate: 采样率
-            
+
         Returns:
             聚合后的行列表
         """
         if not timestamps:
             return []
-        
+
         # 保存音频信息供 VAD 使用
         self._audio = audio
         self._sample_rate = sample_rate
-        
+
         # 初始化 VAD（延迟加载）
         if self._vad is None:
             self._vad = SileroVAD(self.config.vad_config)
-        
+
         # 使用原有的聚合逻辑，但在 _determine_gap_threshold 中使用 VAD
         original_method = self.config.gap_detection_method
         self.config.gap_detection_method = GapDetectionMethod.SILERO_VAD
-        
+
         try:
             lines = self.aggregate(timestamps)
         finally:
@@ -373,21 +384,19 @@ class BreaklineAlgorithm:
             self.config.gap_detection_method = original_method
             # 清理音频数据
             self._audio = None
-        
+
         return lines
-    
+
     def detect_speech_segments(
-        self,
-        audio: np.ndarray,
-        sample_rate: int = 16000
+        self, audio: np.ndarray, sample_rate: int = 16000
     ) -> List[SpeechSegment]:
         """
         检测音频中的语音片段
-        
+
         Args:
             audio: 音频数据
             sample_rate: 采样率
-            
+
         Returns:
             语音片段列表
         """
@@ -398,10 +407,10 @@ class BreaklineAlgorithm:
     def to_srt(self, lines: List[AggregatedLine]) -> str:
         """
         将聚合行转换为 SRT 格式字幕
-        
+
         Args:
             lines: 聚合行列表
-            
+
         Returns:
             SRT 格式字符串
         """
@@ -409,44 +418,44 @@ class BreaklineAlgorithm:
         for i, line in enumerate(lines, 1):
             srt_entries.append(line.to_srt_entry(i))
         return "\n".join(srt_entries)
-    
+
     def to_vtt(self, lines: List[AggregatedLine]) -> str:
         """
         将聚合行转换为 WebVTT 格式字幕
-        
+
         Args:
             lines: 聚合行列表
-            
+
         Returns:
             WebVTT 格式字符串
         """
         vtt_lines = ["WEBVTT", ""]
-        
+
         for line in lines:
             start = self._format_vtt_time(line.start_time)
             end = self._format_vtt_time(line.end_time)
             vtt_lines.append(f"{start} --> {end}")
             vtt_lines.append(line.text)
             vtt_lines.append("")
-        
+
         return "\n".join(vtt_lines)
-    
+
     def get_statistics(self, lines: List[AggregatedLine]) -> dict:
         """
         获取聚合统计信息
-        
+
         Args:
             lines: 聚合行列表
-            
+
         Returns:
             统计信息字典
         """
         if not lines:
             return {}
-        
+
         durations = np.array([line.duration for line in lines])
         char_counts = np.array([len(line.text) for line in lines])
-        
+
         return {
             "total_lines": len(lines),
             "total_duration": float(np.sum(durations)),
@@ -458,49 +467,48 @@ class BreaklineAlgorithm:
             "min_duration": float(np.min(durations)),
             "min_chars": int(np.min(char_counts)),
         }
-    
+
     @staticmethod
-    def benchmark_methods(
-        timestamps: List[TimeStampItem],
-        n_runs: int = 10
-    ) -> dict:
+    def benchmark_methods(timestamps: List[TimeStampItem], n_runs: int = 10) -> dict:
         """
         对比不同间隔检测方法的性能
-        
+
         Args:
             timestamps: 时间戳列表
             n_runs: 每个方法运行次数
-            
+
         Returns:
             各方法的平均耗时和结果行数
         """
         import time
-        
+
         results = {}
-        
+
         for method in GapDetectionMethod:
             config = BreaklineConfig(gap_detection_method=method)
             algo = BreaklineAlgorithm(config)
-            
+
             times = []
             line_count = 0
-            
+
             for _ in range(n_runs):
                 start = time.perf_counter()
                 lines = algo.aggregate(timestamps)
                 elapsed = time.perf_counter() - start
                 times.append(elapsed)
                 line_count = len(lines)
-            
+
             avg_time = np.mean(times) * 1000  # 转换为毫秒
-            
+
             results[method.value] = {
                 "avg_time_ms": round(avg_time, 3),
                 "line_count": line_count,
             }
-            
-            logger.info(f"{method.value}: 平均耗时 {avg_time:.3f}ms, 生成 {line_count} 行")
-        
+
+            logger.info(
+                f"{method.value}: 平均耗时 {avg_time:.3f}ms, 生成 {line_count} 行"
+            )
+
         return results
 
     def _vectorize_timestamps(
@@ -534,7 +542,7 @@ class BreaklineAlgorithm:
         start_times: np.ndarray,
         end_times: np.ndarray,
         char_lens: np.ndarray,
-        gap_threshold: float
+        gap_threshold: float,
     ) -> np.ndarray:
         """
         向量化找出分割点索引
@@ -561,13 +569,15 @@ class BreaklineAlgorithm:
         current_char_sum = char_lens[0]
 
         for i in range(1, n):
-            potential_char_sum = cumsum_chars[i] - (cumsum_chars[current_start_idx - 1] if current_start_idx > 0 else 0)
+            potential_char_sum = cumsum_chars[i] - (
+                cumsum_chars[current_start_idx - 1] if current_start_idx > 0 else 0
+            )
             potential_duration = end_times[i] - start_times[current_start_idx]
 
             should_break = (
-                break_mask[i - 1] or  # 已经标记为分割点
-                potential_char_sum > self.config.max_chars_per_line or
-                potential_duration > self.config.max_duration_per_line
+                break_mask[i - 1]  # 已经标记为分割点
+                or potential_char_sum > self.config.max_chars_per_line
+                or potential_duration > self.config.max_duration_per_line
             )
 
             if should_break:
@@ -619,12 +629,16 @@ class BreaklineAlgorithm:
         method = self.config.gap_detection_method
 
         if method == GapDetectionMethod.FIXED_THRESHOLD:
-            logger.info(f"使用分割算法: 固定阈值 (阈值={self.config.fixed_gap_threshold}秒)")
+            logger.info(
+                f"使用分割算法: 固定阈值 (阈值={self.config.fixed_gap_threshold}秒)"
+            )
             return self.config.fixed_gap_threshold
 
         elif method == GapDetectionMethod.PERCENTILE:
             # 使用百分位数 - O(n log n)
-            logger.info(f"使用分割算法: 百分位数自适应 (百分位={self.config.percentile_threshold})")
+            logger.info(
+                f"使用分割算法: 百分位数自适应 (百分位={self.config.percentile_threshold})"
+            )
             threshold = float(np.percentile(gaps, self.config.percentile_threshold))
             return max(threshold, self.config.min_gap_threshold)
 
@@ -652,7 +666,9 @@ class BreaklineAlgorithm:
             return self._cluster_gaps(gaps)
 
         else:
-            logger.info(f"使用分割算法: 固定阈值 (默认, 阈值={self.config.fixed_gap_threshold}秒)")
+            logger.info(
+                f"使用分割算法: 固定阈值 (默认, 阈值={self.config.fixed_gap_threshold}秒)"
+            )
             return self.config.fixed_gap_threshold
 
     def _otsu_threshold(self, gaps: np.ndarray) -> float:
@@ -688,14 +704,15 @@ class BreaklineAlgorithm:
 
         # 计算类间方差
         # 避免除以零
-        with np.errstate(divide='ignore', invalid='ignore'):
-            between_class_variance = (
-                (global_mean * cumsum - cumsum_mean) ** 2 /
-                (cumsum * (1 - cumsum))
+        with np.errstate(divide="ignore", invalid="ignore"):
+            between_class_variance = (global_mean * cumsum - cumsum_mean) ** 2 / (
+                cumsum * (1 - cumsum)
             )
 
         # 替换 nan/inf 为 0
-        between_class_variance = np.nan_to_num(between_class_variance, nan=0, posinf=0, neginf=0)
+        between_class_variance = np.nan_to_num(
+            between_class_variance, nan=0, posinf=0, neginf=0
+        )
 
         # 找到最大类间方差对应的阈值
         optimal_idx = np.argmax(between_class_variance)
@@ -739,12 +756,12 @@ class BreaklineAlgorithm:
     def _silero_vad_threshold(self, gaps: np.ndarray) -> float:
         """
         使用 Silero VAD 检测结果确定间隔阈值
-        
+
         分析时间戳间隔与 VAD 检测到的静音区域的对应关系，
         将落在静音区域内的间隔识别为分割点。
-        
+
         如果没有音频数据可用，则回退到百分位数方法。
-        
+
         Returns:
             间隔阈值（秒）
         """
@@ -753,50 +770,53 @@ class BreaklineAlgorithm:
             logger.warning("VAD 方法需要音频数据，回退到百分位数方法")
             threshold = float(np.percentile(gaps, self.config.percentile_threshold))
             return max(threshold, self.config.min_gap_threshold)
-        
+
         try:
             # 初始化 VAD
             if self._vad is None:
                 self._vad = SileroVAD(self.config.vad_config)
-            
+
             # 检测静音片段
             silence_segments = self._vad.get_silence_segments(
                 self._audio,
                 self._sample_rate,
-                total_duration=len(self._audio) / self._sample_rate
+                total_duration=len(self._audio) / self._sample_rate,
             )
-            
+
             if not silence_segments:
                 logger.debug("未检测到静音片段，使用百分位数方法")
                 threshold = float(np.percentile(gaps, self.config.percentile_threshold))
                 return max(threshold, self.config.min_gap_threshold)
-            
+
             # 计算静音片段的时长分布
-            silence_durations = np.array([end - start for start, end in silence_segments])
-            
+            silence_durations = np.array(
+                [end - start for start, end in silence_segments]
+            )
+
             # 使用静音时长的中位数作为阈值参考
             median_silence = float(np.median(silence_durations))
-            
+
             # 结合间隔数据，取较小值确保不会遗漏分割点
             gap_threshold = float(np.percentile(gaps, 50))  # 使用中位数
-            
+
             # 最终阈值：取静音中位数和间隔中位数的较小值
             threshold = min(median_silence, gap_threshold)
-            
-            logger.debug(f"VAD 静音中位数: {median_silence:.3f}s, "
-                        f"间隔中位数: {gap_threshold:.3f}s, "
-                        f"最终阈值: {threshold:.3f}s")
-            
+
+            logger.debug(
+                f"VAD 静音中位数: {median_silence:.3f}s, "
+                f"间隔中位数: {gap_threshold:.3f}s, "
+                f"最终阈值: {threshold:.3f}s"
+            )
+
             return max(threshold, self.config.min_gap_threshold)
-            
+
         except Exception as e:
             logger.warning(f"VAD 检测失败，回退到百分位数方法: {e}")
             threshold = float(np.percentile(gaps, self.config.percentile_threshold))
             return max(threshold, self.config.min_gap_threshold)
 
     def _merge_short_segments(
-        self,
-        groups: List[List[TimeStampItem]]
+        self, groups: List[List[TimeStampItem]]
     ) -> List[List[TimeStampItem]]:
         """
         合并过短的片段
@@ -828,8 +848,7 @@ class BreaklineAlgorithm:
         return merged
 
     def _create_aggregated_lines(
-        self,
-        groups: List[List[TimeStampItem]]
+        self, groups: List[List[TimeStampItem]]
     ) -> List[AggregatedLine]:
         """
         从分组创建聚合行
@@ -844,12 +863,14 @@ class BreaklineAlgorithm:
             start_time = group[0].start_time
             end_time = group[-1].end_time
 
-            lines.append(AggregatedLine(
-                text=text,
-                start_time=start_time,
-                end_time=end_time,
-                word_count=len(group)
-            ))
+            lines.append(
+                AggregatedLine(
+                    text=text,
+                    start_time=start_time,
+                    end_time=end_time,
+                    word_count=len(group),
+                )
+            )
 
         return lines
 

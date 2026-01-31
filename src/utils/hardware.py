@@ -133,10 +133,10 @@ class Hardware:
     def get_gpu_available_memory_bytes(self, device_id: int = 0) -> int:
         """
         获取 GPU 可用显存（字节）
-        
+
         Args:
             device_id: GPU 设备 ID
-            
+
         Returns:
             可用显存字节数，如果无 GPU 返回 0
         """
@@ -157,10 +157,10 @@ class Hardware:
     def get_gpu_available_memory_gb(self, device_id: int = 0) -> float:
         """
         获取 GPU 可用显存（GB）
-        
+
         Args:
             device_id: GPU 设备 ID
-            
+
         Returns:
             可用显存 GB，如果无 GPU 返回 0
         """
@@ -169,10 +169,10 @@ class Hardware:
     def get_gpu_memory_limit_fraction(self, device_id: int = 0) -> float:
         """
         获取 PyTorch 设置的显存限制比例
-        
+
         Args:
             device_id: GPU 设备 ID
-            
+
         Returns:
             显存限制比例 (0.0-1.0)，1.0 表示无限制
         """
@@ -189,10 +189,10 @@ class Hardware:
     def get_gpu_effective_available_memory_bytes(self, device_id: int = 0) -> int:
         """
         获取考虑显存限制后的实际可用显存（字节）
-        
+
         Args:
             device_id: GPU 设备 ID
-            
+
         Returns:
             实际可用显存字节数
         """
@@ -223,10 +223,10 @@ class Hardware:
     def get_gpu_effective_available_memory_gb(self, device_id: int = 0) -> float:
         """
         获取考虑显存限制后的实际可用显存（GB）
-        
+
         Args:
             device_id: GPU 设备 ID
-            
+
         Returns:
             实际可用显存 GB
         """
@@ -235,10 +235,10 @@ class Hardware:
     def get_gpu_memory_status(self, device_id: int = 0) -> dict:
         """
         获取 GPU 显存状态摘要
-        
+
         Args:
             device_id: GPU 设备 ID
-            
+
         Returns:
             包含显存状态的字典
         """
@@ -264,8 +264,12 @@ class Hardware:
                 "free_bytes": total - reserved,
                 "free_gb": (total - reserved) / (1024**3),
                 "limit_fraction": limit_fraction,
-                "effective_available_bytes": self.get_gpu_effective_available_memory_bytes(device_id),
-                "effective_available_gb": self.get_gpu_effective_available_memory_gb(device_id),
+                "effective_available_bytes": self.get_gpu_effective_available_memory_bytes(
+                    device_id
+                ),
+                "effective_available_gb": self.get_gpu_effective_available_memory_gb(
+                    device_id
+                ),
             }
         except Exception:
             return {"available": False}

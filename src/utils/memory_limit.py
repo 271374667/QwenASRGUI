@@ -76,7 +76,10 @@ class MemoryLimit:
         if self._config.system_memory_limit_bytes is not None:
             if self._config.system_memory_limit_bytes <= 0:
                 raise MemoryLimitError("系统内存限制必须大于 0")
-            if self._config.system_memory_limit_bytes > self._hardware.system_memory_bytes:
+            if (
+                self._config.system_memory_limit_bytes
+                > self._hardware.system_memory_bytes
+            ):
                 raise MemoryLimitError(
                     f"系统内存限制 ({self._config.system_memory_limit_gb:.2f} GB) "
                     f"超过可用系统内存 ({self._hardware.system_memory_bytes / (1024**3):.2f} GB)"
@@ -89,7 +92,10 @@ class MemoryLimit:
             if self._config.gpu_memory_limit_bytes <= 0:
                 raise MemoryLimitError("GPU 显存限制必须大于 0")
             if self._hardware.gpu_total_memory_bytes is not None:
-                if self._config.gpu_memory_limit_bytes > self._hardware.gpu_total_memory_bytes:
+                if (
+                    self._config.gpu_memory_limit_bytes
+                    > self._hardware.gpu_total_memory_bytes
+                ):
                     raise MemoryLimitError(
                         f"GPU 显存限制 ({self._config.gpu_memory_limit_gb:.2f} GB) "
                         f"超过可用 GPU 显存 ({self._hardware.gpu_total_memory_bytes / (1024**3):.2f} GB)"
@@ -237,9 +243,7 @@ class MemoryLimit:
             if not process_handle:
                 error_code = kernel32.GetLastError()
                 kernel32.CloseHandle(job_handle)
-                raise MemoryLimitError(
-                    f"无法打开当前进程句柄，错误码: {error_code}"
-                )
+                raise MemoryLimitError(f"无法打开当前进程句柄，错误码: {error_code}")
 
             # 将当前进程添加到 Job Object
             success = kernel32.AssignProcessToJobObject(job_handle, process_handle)
