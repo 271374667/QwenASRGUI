@@ -13,9 +13,9 @@ from enum import Enum
 from tqdm import tqdm
 from loguru import logger
 from transformers import logging as transformers_logging
-from qwen_asr import Qwen3ASRModel
+from qwen_asr import Qwen3ASRModel, Qwen3ForcedAligner
 from src.core import paths
-from src.core.vo import TimeStampItem, TranscriptionResult
+from src.core.vo import TimeStampItem, TranscriptionResult, AlignmentResult
 from src.common.media_handler import MediaHandler, AudioData
 from src.utils.hardware import Hardware
 
@@ -357,6 +357,174 @@ class ASRInterface:
             results.append(result)
         
         logger.success(f"批量转录完成: 共 {len(results)} 个文件")
+        return results
+
+    def align(
+        self,
+        audio_input: Union[str, AudioData],
+        text: str,
+        language: str = "Chinese",
+    ) -> AlignmentResult:
+        """对齐音频和文本，返回时间戳。
+
+        将给定的文本与音频进行强制对齐（Forced Alignment），
+        返回每个字/词对应的精确时间戳。适用于已有准确文本、
+        只需要获取时间戳的场景。
+
+        与 transcribe() 不同，此方法不进行语音识别，
+        而是直接使用提供的文本进行对齐。
+
+        Args:
+            audio_input: 音频文件路径或 AudioData 对象。
+            text: 需要对齐的文本内容。
+            language: 语言类型，支持 Chinese, English, Cantonese, French,
+                German, Italian, Japanese, Korean, Portuguese, Russian, Spanish。
+                默认为 "Chinese"。
+
+        Returns:
+            AlignmentResult: 包含对齐后时间戳的结果对象。
+
+        Raises:
+            RuntimeError: 模型未加载且无法自动加载时抛出。
+            ValueError: 文本为空或语言不支持时抛出。
+
+        Example:
+            基本用法::
+
+                asr = ASRInterface()
+                result = asr.align(
+                    audio_input="demo.wav",
+                    text="你好世界",
+                    language="Chinese"
+                )
+                for ts in result.time_stamps:
+                    print(f"{ts.text}: {ts.start_time:.2f}s - {ts.end_time:.2f}s")
+
+            使用 AudioData 对象::
+
+                audio = asr.get_last_audio()  # 从上次转录获取
+                result = asr.align(audio, "修正后的文本", "Chinese")
+
+        Note:
+            - 对于长音频，建议先分段再分别对齐
+            - 对齐器支持最长约 5 分钟的音频
+            - 文本需要与音频内容匹配，否则对齐结果可能不准确
+        """
+        if not text or not text.strip():
+            raise ValueError("对齐文本不能为空")
+
+        # 确保模型已加载（对齐器作为模型的一部分）
+        if not self.is_ready:
+            logger.warning("模型未加载，正在自动加载...")
+            self.load_model()
+
+        if self._model is None:
+            raise RuntimeError("模型未加载，无法进行对齐")
+
+        self._status = ModelStatus.PROCESSING
+
+        try:
+            # 加载音频
+            if isinstance(audio_input, str):
+                logger.info(f"开始对齐: {audio_input}")
+                audio = self._media_handler.load(audio_input)
+            else:
+                logger.info(f"开始对齐: AudioData ({audio_input.duration:.1f}秒)")
+                audio = audio_input
+
+            # 缓存音频
+            self._last_audio = audio
+            audio_duration = audio.duration
+
+            # 准备音频数据格式 (np.ndarray, sample_rate)
+            audio_tuple = (audio.data, audio.sample_rate)
+
+            # 使用模型内置的强制对齐器进行对齐
+            # Qwen3ASRModel 在初始化时已加载 forced_aligner
+            if not hasattr(self._model, 'forced_aligner') or self._model.forced_aligner is None:
+                raise RuntimeError(
+                    "强制对齐器未加载。请确保在配置中指定了 aligner_model_path"
+                )
+
+            # 调用对齐器
+            align_results = self._model.forced_aligner.align(
+                audio=audio_tuple,
+                text=text,
+                language=language,
+            )
+
+            # 转换结果格式
+            # align_results 返回 List[List[TimeStampResult]]
+            # 每个音频一个列表，我们只处理第一个
+            time_stamps: List[TimeStampItem] = []
+            if align_results and len(align_results) > 0:
+                for item in align_results[0]:
+                    time_stamps.append(TimeStampItem(
+                        text=item.text,
+                        start_time=item.start_time,
+                        end_time=item.end_time
+                    ))
+
+            self._status = ModelStatus.READY
+
+            result = AlignmentResult(
+                text=text,
+                language=language,
+                time_stamps=time_stamps,
+                audio_duration=audio_duration
+            )
+
+            logger.success(
+                f"对齐完成: 语言={language}, "
+                f"字/词数={result.word_count}, "
+                f"音频时长={audio_duration:.1f}秒"
+            )
+            self._log_gpu_status()
+
+            return result
+
+        except Exception as e:
+            self._status = ModelStatus.ERROR
+            logger.error(f"对齐失败: {e}")
+            raise
+
+    def align_batch(
+        self,
+        items: List[tuple],
+        language: str = "Chinese",
+    ) -> List[AlignmentResult]:
+        """批量对齐多个音频-文本对。
+
+        对多个音频-文本对进行强制对齐，返回每个对的时间戳结果。
+
+        Args:
+            items: 音频-文本对列表，每个元素为 (audio_input, text) 元组。
+                audio_input 可以是文件路径或 AudioData 对象。
+            language: 语言类型，默认为 "Chinese"。
+
+        Returns:
+            List[AlignmentResult]: 对齐结果列表，与输入顺序一致。
+
+        Example:
+            基本用法::
+
+                asr = ASRInterface()
+                items = [
+                    ("audio1.wav", "第一段文本"),
+                    ("audio2.wav", "第二段文本"),
+                ]
+                results = asr.align_batch(items, language="Chinese")
+                for i, result in enumerate(results):
+                    print(f"第 {i+1} 段: {result.word_count} 个字")
+        """
+        results: List[AlignmentResult] = []
+
+        for i, (audio_input, text) in enumerate(items):
+            logger.info(f"对齐进度 {i+1}/{len(items)}")
+            result = self.align(audio_input, text, language)
+            results.append(result)
+
+        logger.success(f"批量对齐完成: 共 {len(results)} 个文件")
         return results
     
     def __enter__(self):

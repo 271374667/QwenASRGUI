@@ -50,18 +50,62 @@ class AggregatedLine:
         return f"{index}\n{self.to_srt_time(self.start_time)} --> {self.to_srt_time(self.end_time)}\n{self.text}\n"
 
 
-@dataclass 
+@dataclass
 class TranscriptionResult:
     """转录结果"""
     language: str
     text: str
     time_stamps: Optional[List[TimeStampItem]] = None
     duration: float = 0.0
-    
+
     def get_full_text(self) -> str:
         return self.text
-    
+
     def get_formatted_timestamps(self) -> str:
         if not self.time_stamps:
             return ""
         return "\n".join(str(ts) for ts in self.time_stamps)
+
+
+@dataclass
+class AlignmentResult:
+    """强制对齐结果。
+
+    存储将给定文本与音频对齐后产生的时间戳信息。
+
+    Attributes:
+        text: 输入的原始文本。
+        language: 对齐时使用的语言。
+        time_stamps: 对齐后的时间戳列表，每个元素对应一个字/词。
+        audio_duration: 音频总时长（秒）。
+
+    Example:
+        基本用法::
+
+            result = AlignmentResult(
+                text="你好世界",
+                language="Chinese",
+                time_stamps=[...],
+                audio_duration=2.5
+            )
+            print(result.get_formatted_timestamps())
+    """
+    text: str
+    language: str
+    time_stamps: List[TimeStampItem]
+    audio_duration: float = 0.0
+
+    def get_formatted_timestamps(self) -> str:
+        """获取格式化的时间戳字符串。
+
+        Returns:
+            格式化后的时间戳字符串，每行一个时间戳项。
+        """
+        if not self.time_stamps:
+            return ""
+        return "\n".join(str(ts) for ts in self.time_stamps)
+
+    @property
+    def word_count(self) -> int:
+        """获取对齐的字/词数量。"""
+        return len(self.time_stamps)
