@@ -13,7 +13,7 @@ from enum import Enum
 from tqdm import tqdm
 from loguru import logger
 from transformers import logging as transformers_logging
-from qwen_asr import Qwen3ASRModel, Qwen3ForcedAligner
+from qwen_asr import Qwen3ASRModel
 from src.core import paths
 from src.core.vo import TimeStampItem, TranscriptionResult, AlignmentResult
 from src.common.media_handler import MediaHandler, AudioData
@@ -777,31 +777,31 @@ class ASRInterface:
         Args:
             quantization_mode: 量化模式
         """
-        logger.info("=" * 50)
-        logger.info("模型加载参数")
-        logger.info("=" * 50)
-        logger.info(f"  ASR 模型路径: {self.config.asr_model_path}")
-        logger.info(f"  对齐器模型路径: {self.config.aligner_model_path}")
-        logger.info(f"  设备: {self.config.device}")
-        logger.info(f"  量化模式: {quantization_mode.value}")
+        logger.debug("=" * 50)
+        logger.debug("模型加载参数")
+        logger.debug("=" * 50)
+        logger.debug(f"  ASR 模型路径: {self.config.asr_model_path}")
+        logger.debug(f"  对齐器模型路径: {self.config.aligner_model_path}")
+        logger.debug(f"  设备: {self.config.device}")
+        logger.debug(f"  量化模式: {quantization_mode.value}")
         
         if quantization_mode == QuantizationMode.NONE:
-            logger.info(f"  数据类型: {self.config.dtype}")
+            logger.debug(f"  数据类型: {self.config.dtype}")
         elif quantization_mode == QuantizationMode.INT8:
-            logger.info("  数据类型: 8-bit 量化")
+            logger.debug("  数据类型: 8-bit 量化")
         elif quantization_mode == QuantizationMode.INT4:
-            logger.info("  数据类型: 4-bit 量化")
+            logger.debug("  数据类型: 4-bit 量化")
         
-        logger.info(f"  最大推理批大小: {self.config.max_inference_batch_size}")
-        logger.info(f"  最大生成 tokens: {self.config.max_new_tokens}")
-        logger.info(f"  分段时长: {self.config.segment_duration}秒")
-        logger.info(f"  采样率: {self.config.sample_rate}Hz")
+        logger.debug(f"  最大推理批大小: {self.config.max_inference_batch_size}")
+        logger.debug(f"  最大生成 tokens: {self.config.max_new_tokens}")
+        logger.debug(f"  分段时长: {self.config.segment_duration}秒")
+        logger.debug(f"  采样率: {self.config.sample_rate}Hz")
         
         # 算力限制参数
         if self.config.inference_delay > 0 or self.config.low_priority_mode:
-            logger.info("-" * 50)
-            logger.info("算力限制（后台模式）")
-            logger.info(f"  推理间隔延迟: {self.config.inference_delay}秒")
-            logger.info(f"  低优先级模式: {'启用' if self.config.low_priority_mode else '禁用'}")
+            logger.debug("-" * 50)
+            logger.debug("算力限制（后台模式）")
+            logger.debug(f"  推理间隔延迟: {self.config.inference_delay}秒")
+            logger.debug(f"  低优先级模式: {'启用' if self.config.low_priority_mode else '禁用'}")
         
-        logger.info("=" * 50)
+        logger.debug("=" * 50)

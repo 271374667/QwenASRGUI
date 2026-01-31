@@ -5,6 +5,11 @@ Media Handler Module
 
 import librosa
 import numpy as np
+import audioread
+try:
+    import soundfile as sf
+except Exception:  # pragma: no cover - optional dependency
+    sf = None
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple, Union
@@ -104,7 +109,10 @@ class MediaHandler:
         # 加载音频
         logger.info(f"加载音频: {path_str}")
         try:
-            data, loaded_sr = librosa.load(path_str, sr=sr)
+            data, loaded_sr = self._load_audio(path_str)
+            if loaded_sr != sr:
+                data = librosa.resample(data, orig_sr=loaded_sr, target_sr=sr)
+                loaded_sr = sr
             audio = AudioData(data=data, sample_rate=int(loaded_sr), path=path_str)
             logger.info(f"音频加载完成: {audio}")
             
@@ -117,6 +125,40 @@ class MediaHandler:
         except Exception as e:
             logger.error(f"音频加载失败: {path_str}, 错误: {e}")
             raise
+
+    def _load_audio(self, path_str: str) -> Tuple[np.ndarray, int]:
+        """加载音频数据并返回 (data, sample_rate)."""
+        if sf is not None:
+            try:
+                data, loaded_sr = sf.read(path_str, dtype="float32", always_2d=False)
+                data = self._to_mono(data)
+                return data, int(loaded_sr)
+            except Exception as e:
+                logger.warning(f"PySoundFile 加载失败，尝试 audioread: {e}")
+
+        return self._load_with_audioread(path_str)
+
+    def _load_with_audioread(self, path_str: str) -> Tuple[np.ndarray, int]:
+        """使用 audioread 加载音频，避免 librosa 的 deprecated fallback."""
+        with audioread.audio_open(path_str) as input_file:
+            loaded_sr = input_file.samplerate
+            channels = input_file.channels
+            frames = []
+            for buf in input_file:
+                frames.append(np.frombuffer(buf, dtype=np.int16))
+
+        if not frames:
+            raise ValueError("audioread 未返回有效音频帧")
+
+        data = np.concatenate(frames).astype(np.float32) / 32768.0
+        if channels > 1:
+            data = data.reshape((-1, channels)).mean(axis=1)
+        return data, int(loaded_sr)
+
+    def _to_mono(self, data: np.ndarray) -> np.ndarray:
+        if data.ndim == 1:
+            return data
+        return data.mean(axis=1)
     
     def load_from_array(
         self,
