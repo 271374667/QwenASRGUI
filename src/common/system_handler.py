@@ -4,6 +4,8 @@
 提供统一的系统硬件检测和资源限制管理接口。
 """
 
+import os
+
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -313,6 +315,9 @@ class SystemHandler:
         Raises:
             MemoryLimitError: 如果应用限制失败。
         """
+        # 设置 PyTorch 内存分配策略，减少碎片化
+        os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
         if self._limits_applied:
             return self
 
@@ -370,7 +375,9 @@ class SystemHandler:
                     "system_memory_limit_gb": limiter_info.get(
                         "system_memory_limit_gb"
                     ),
-                    "gpu_memory_limit_bytes": limiter_info.get("gpu_memory_limit_bytes"),
+                    "gpu_memory_limit_bytes": limiter_info.get(
+                        "gpu_memory_limit_bytes"
+                    ),
                     "gpu_memory_limit_gb": limiter_info.get("gpu_memory_limit_gb"),
                 }
             )

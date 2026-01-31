@@ -1,6 +1,6 @@
 """
 Media Handler Module
-提供音频文件加载与处理功能
+提供音频文件加载与处理功能，支持从视频文件提取音频
 """
 
 import librosa
@@ -12,9 +12,23 @@ except Exception:  # pragma: no cover - optional dependency
     sf = None
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Tuple, Union
+from typing import List, Optional, Set, Tuple, Union
 
 from loguru import logger
+from pydub import AudioSegment
+
+from src.core.paths import FFMEPG_FILE
+
+# 配置 pydub 使用内置的 ffmpeg
+if FFMEPG_FILE.exists():
+    AudioSegment.converter = str(FFMEPG_FILE)
+    logger.debug(f"pydub 使用内置 ffmpeg: {FFMEPG_FILE}")
+else:
+    logger.warning(f"内置 ffmpeg 不存在: {FFMEPG_FILE}，将使用系统 PATH 中的 ffmpeg")
+
+# 支持的媒体格式
+AUDIO_EXTENSIONS: Set[str] = {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac", ".wma"}
+VIDEO_EXTENSIONS: Set[str] = {".mp4", ".mkv", ".mov", ".avi", ".webm", ".flv", ".wmv"}
 
 
 @dataclass
@@ -45,26 +59,34 @@ class AudioData:
 class MediaHandler:
     """
     媒体文件处理器
-    
-    提供音频文件加载、重采样、分段等功能，支持缓存避免重复加载。
-    
+
+    提供音频文件加载、重采样、分段等功能，支持从视频文件提取音频，支持缓存避免重复加载。
+
     用法概览：
     - 加载音频：`load()` 加载音频文件
+    - 加载视频：`load()` 也可加载视频文件并自动提取音频
     - 分段：`segment()` 将音频分段
     - 缓存管理：`clear_cache()` 清除缓存
-    
+
     公开方法：
-    - load(path, sample_rate=16000): 加载音频文件
+    - load(path, sample_rate=16000): 加载音频或视频文件
+    - load_from_video(path, sample_rate): 从视频文件提取音频
     - load_from_array(data, sample_rate): 从 numpy 数组创建 AudioData
     - segment(audio, segment_duration): 将音频分段
     - resample(audio, target_sr): 重采样音频
     - clear_cache(): 清除已加载的音频缓存
-    
+    - is_video_file(path): 检查文件是否为视频格式
+
     典型示例：
         handler = MediaHandler()
+
+        # 加载音频文件
         audio = handler.load("audio.mp3")
         print(f"时长: {audio.duration}秒")
-        
+
+        # 加载视频文件（自动提取音频）
+        audio = handler.load("video.mp4")
+
         segments = handler.segment(audio, segment_duration=15.0)
         print(f"分段数: {len(segments)}")
     """
@@ -87,43 +109,153 @@ class MediaHandler:
         use_cache: bool = True
     ) -> AudioData:
         """
-        加载音频文件
-        
+        加载音频或视频文件
+
+        自动检测文件类型，如果是视频文件则提取音频。
+
         Args:
-            path: 音频文件路径
+            path: 音频或视频文件路径
             sample_rate: 目标采样率，None 则使用默认采样率
             use_cache: 是否使用缓存
-            
+
         Returns:
             AudioData 对象
         """
         path_str = str(path)
         sr = sample_rate or self.default_sample_rate
         cache_key = f"{path_str}:{sr}"
-        
+
         # 检查缓存
         if use_cache and cache_key in self._cache:
             logger.debug(f"从缓存加载音频: {path_str}")
             return self._cache[cache_key]
-        
-        # 加载音频
-        logger.info(f"加载音频: {path_str}")
+
+        # 检测文件类型并加载
+        if self.is_video_file(path):
+            logger.info(f"检测到视频文件，提取音频: {path_str}")
+            audio = self._load_from_video(path_str, sr)
+        else:
+            logger.info(f"加载音频: {path_str}")
+            try:
+                data, loaded_sr = self._load_audio(path_str)
+                if loaded_sr != sr:
+                    data = librosa.resample(data, orig_sr=loaded_sr, target_sr=sr)
+                    loaded_sr = sr
+                audio = AudioData(data=data, sample_rate=int(loaded_sr), path=path_str)
+            except Exception as e:
+                logger.error(f"音频加载失败: {path_str}, 错误: {e}")
+                raise
+
+        logger.info(f"音频加载完成: {audio}")
+
+        # 缓存
+        if use_cache:
+            self._cache[cache_key] = audio
+
+        return audio
+
+    @staticmethod
+    def is_video_file(path: Union[str, Path]) -> bool:
+        """
+        检查文件是否为视频格式
+
+        Args:
+            path: 文件路径
+
+        Returns:
+            如果是视频文件返回 True
+        """
+        ext = Path(path).suffix.lower()
+        return ext in VIDEO_EXTENSIONS
+
+    @staticmethod
+    def is_audio_file(path: Union[str, Path]) -> bool:
+        """
+        检查文件是否为音频格式
+
+        Args:
+            path: 文件路径
+
+        Returns:
+            如果是音频文件返回 True
+        """
+        ext = Path(path).suffix.lower()
+        return ext in AUDIO_EXTENSIONS
+
+    def load_from_video(
+        self,
+        path: Union[str, Path],
+        sample_rate: Optional[int] = None,
+        use_cache: bool = True
+    ) -> AudioData:
+        """
+        从视频文件提取音频
+
+        Args:
+            path: 视频文件路径
+            sample_rate: 目标采样率，None 则使用默认采样率
+            use_cache: 是否使用缓存
+
+        Returns:
+            AudioData 对象
+
+        Raises:
+            ValueError: 如果文件不是支持的视频格式
+        """
+        path_str = str(path)
+        sr = sample_rate or self.default_sample_rate
+        cache_key = f"{path_str}:{sr}"
+
+        # 检查缓存
+        if use_cache and cache_key in self._cache:
+            logger.debug(f"从缓存加载音频: {path_str}")
+            return self._cache[cache_key]
+
+        if not self.is_video_file(path):
+            raise ValueError(
+                f"不支持的视频格式: {Path(path).suffix}，"
+                f"支持的格式: {', '.join(VIDEO_EXTENSIONS)}"
+            )
+
+        audio = self._load_from_video(path_str, sr)
+        logger.info(f"视频音频提取完成: {audio}")
+
+        # 缓存
+        if use_cache:
+            self._cache[cache_key] = audio
+
+        return audio
+
+    def _load_from_video(self, path_str: str, target_sr: int) -> AudioData:
+        """
+        使用 pydub 从视频文件提取音频
+
+        Args:
+            path_str: 视频文件路径
+            target_sr: 目标采样率
+
+        Returns:
+            AudioData 对象
+        """
         try:
-            data, loaded_sr = self._load_audio(path_str)
-            if loaded_sr != sr:
-                data = librosa.resample(data, orig_sr=loaded_sr, target_sr=sr)
-                loaded_sr = sr
-            audio = AudioData(data=data, sample_rate=int(loaded_sr), path=path_str)
-            logger.info(f"音频加载完成: {audio}")
-            
-            # 缓存
-            if use_cache:
-                self._cache[cache_key] = audio
-            
-            return audio
-            
+            # 使用 pydub 加载视频并提取音频
+            audio_segment = AudioSegment.from_file(path_str)
+
+            # 转换为目标采样率和单声道
+            audio_segment = audio_segment.set_frame_rate(target_sr).set_channels(1)
+
+            # 转换为 numpy 数组
+            samples = np.array(audio_segment.get_array_of_samples(), dtype=np.float32)
+
+            # 根据采样宽度归一化到 [-1, 1]
+            sample_width = audio_segment.sample_width
+            max_val = float(2 ** (sample_width * 8 - 1))
+            samples = samples / max_val
+
+            return AudioData(data=samples, sample_rate=target_sr, path=path_str)
+
         except Exception as e:
-            logger.error(f"音频加载失败: {path_str}, 错误: {e}")
+            logger.error(f"视频音频提取失败: {path_str}, 错误: {e}")
             raise
 
     def _load_audio(self, path_str: str) -> Tuple[np.ndarray, int]:
