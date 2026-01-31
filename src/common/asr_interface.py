@@ -61,6 +61,14 @@ class Language(Enum):
     SPANISH = "Spanish"
 
 
+class ModelSize(Enum):
+    """模型大小枚举"""
+
+    LARGE = "large"  # Qwen3-ASR-1.7B
+    SMALL = "small"  # Qwen3-ASR-0.6B
+    AUTO = "auto"  # 自动选择（根据显存）
+
+
 # 不同量化模式下模型的预估显存需求（GB）
 # 基于 Qwen3-ASR-1.7B + Forced Aligner 模型估算
 # 注意：KV cache 和激活值在推理时仍使用 fp16，需要额外显存
@@ -68,6 +76,19 @@ VRAM_REQUIREMENTS = {
     QuantizationMode.NONE: 6.0,  # fp16: ~3.4GB ASR + ~1.2GB Aligner + 1.4GB 推理开销
     QuantizationMode.INT8: 4.5,  # int8: ~1.7GB ASR + ~1.2GB Aligner + 1.6GB 推理开销(KV cache仍fp16)
     QuantizationMode.INT4: 3.5,  # int4: ~0.85GB ASR + ~1.2GB Aligner + 1.45GB 推理开销
+}
+
+# 小模型（Qwen3-ASR-0.6B）的显存需求（GB）
+VRAM_REQUIREMENTS_SMALL = {
+    QuantizationMode.NONE: 3.5,  # fp16: ~1.2GB ASR + ~1.2GB Aligner + 1.1GB 推理开销
+    QuantizationMode.INT8: 2.8,  # int8: ~0.6GB ASR + ~1.2GB Aligner + 1.0GB 推理开销
+    QuantizationMode.INT4: 2.2,  # int4: ~0.3GB ASR + ~1.2GB Aligner + 0.7GB 推理开销
+}
+
+# 模型名称映射
+MODEL_NAMES = {
+    ModelSize.LARGE: "Qwen3-ASR-1.7B",
+    ModelSize.SMALL: "Qwen3-ASR-0.6B",
 }
 
 
@@ -93,6 +114,15 @@ class ASRConfig:
     inference_delay: float = 0.0
     # 是否启用低优先级模式（减少对其他 GPU 任务的影响）
     low_priority_mode: bool = False
+    # 模型大小选择：LARGE（1.7B）、SMALL（0.6B）、AUTO（自动选择）
+    model_size: ModelSize = ModelSize.AUTO
+
+    def __post_init__(self) -> None:
+        """根据 model_size 自动设置模型路径（仅当使用默认路径时）"""
+        # 如果用户显式指定了小模型，且使用的是默认大模型路径，则切换到小模型路径
+        if self.model_size == ModelSize.SMALL:
+            if self.asr_model_path == str(paths.ASR_MODEL_DIR):
+                self.asr_model_path = str(paths.ASR_SMALL_MODEL_DIR)
 
     @property
     def effective_max_new_tokens(self) -> int:
@@ -158,6 +188,7 @@ class ASRInterface:
         self._actual_quantization_mode: Optional[QuantizationMode] = (
             None  # 实际使用的量化模式
         )
+        self._actual_model_size: Optional[ModelSize] = None  # 实际使用的模型大小
 
         # 应用低优先级模式
         if self.config.low_priority_mode:
@@ -183,14 +214,35 @@ class ASRInterface:
         """获取实际使用的量化模式"""
         return self._actual_quantization_mode
 
+    @property
+    def actual_model_size(self) -> Optional[ModelSize]:
+        """获取实际使用的模型大小"""
+        return self._actual_model_size
+
+    @property
+    def model_name(self) -> str:
+        """获取当前使用的模型名称"""
+        if self._actual_model_size is not None:
+            return MODEL_NAMES.get(self._actual_model_size, "Unknown")
+        # 根据配置的模型路径判断
+        if self.config.model_size == ModelSize.SMALL or str(
+            paths.ASR_SMALL_MODEL_DIR
+        ) in self.config.asr_model_path:
+            return MODEL_NAMES[ModelSize.SMALL]
+        return MODEL_NAMES[ModelSize.LARGE]
+
     def load_model(self) -> None:
-        """加载模型（支持自动量化降级）"""
+        """加载模型（支持自动量化降级和模型大小自动选择）"""
         if self._status == ModelStatus.READY:
             logger.warning("模型已加载，跳过重复加载")
             return
 
         self._status = ModelStatus.LOADING
         logger.info("开始加载 ASR 模型...")
+
+        # 确定模型大小
+        model_size = self._determine_model_size()
+        self._actual_model_size = model_size
 
         # 确定量化模式
         quantization_mode = self._determine_quantization_mode()
@@ -205,18 +257,26 @@ class ASRInterface:
 
             self._model = Qwen3ASRModel.from_pretrained(**model_kwargs)
             self._status = ModelStatus.READY
-            logger.success("模型加载完成")
+            logger.success(f"模型加载完成: {self.model_name}")
             self._log_gpu_status()
 
         except torch.cuda.OutOfMemoryError as e:
-            # 如果 OOM 且还能降级，尝试降级
+            # 首先尝试量化降级
             lower_mode = self._get_lower_quantization_mode(quantization_mode)
             if lower_mode is not None:
                 logger.warning(f"显存不足，尝试降级到 {lower_mode.value} 量化模式...")
                 self._status = ModelStatus.NOT_LOADED
                 torch.cuda.empty_cache()
-                # 更新配置并重试
                 self.config.quantization_mode = lower_mode
+                self.load_model()
+            # 如果量化已是最低，尝试切换到小模型
+            elif self._actual_model_size == ModelSize.LARGE:
+                logger.warning("显存不足且已是最低量化精度，尝试切换到小模型...")
+                self._status = ModelStatus.NOT_LOADED
+                torch.cuda.empty_cache()
+                self.config.model_size = ModelSize.SMALL
+                self.config.asr_model_path = str(paths.ASR_SMALL_MODEL_DIR)
+                self.config.quantization_mode = QuantizationMode.AUTO  # 重置量化模式
                 self.load_model()
             else:
                 self._status = ModelStatus.ERROR
@@ -678,6 +738,52 @@ class ASRInterface:
         except Exception as e:
             logger.warning(f"无法设置低优先级模式: {e}")
 
+    def _determine_model_size(self) -> ModelSize:
+        """
+        根据配置和可用显存确定模型大小
+
+        Returns:
+            最终确定的模型大小
+        """
+        configured_size = self.config.model_size
+
+        # 如果不是自动模式，直接返回配置的模式
+        if configured_size != ModelSize.AUTO:
+            logger.info(f"使用配置的模型大小: {MODEL_NAMES[configured_size]}")
+            return configured_size
+
+        # 自动模式：根据可用显存选择
+        available_vram = self._get_available_vram()
+        safety_margin = self.config.auto_quantization_safety_margin
+        usable_vram = available_vram - safety_margin
+
+        # 检查是否能运行大模型（即使是 int4 量化）
+        min_large_vram = VRAM_REQUIREMENTS[QuantizationMode.INT4]
+        min_small_vram = VRAM_REQUIREMENTS_SMALL[QuantizationMode.INT4]
+
+        if usable_vram >= min_large_vram:
+            selected_size = ModelSize.LARGE
+            logger.info(
+                f"显存检测: 可用 {usable_vram:.2f}GB >= {min_large_vram:.2f}GB，选择大模型 ({MODEL_NAMES[selected_size]})"
+            )
+        elif usable_vram >= min_small_vram:
+            selected_size = ModelSize.SMALL
+            # 更新模型路径
+            self.config.asr_model_path = str(paths.ASR_SMALL_MODEL_DIR)
+            logger.warning(
+                f"显存受限: 可用 {usable_vram:.2f}GB < {min_large_vram:.2f}GB，自动切换到小模型 ({MODEL_NAMES[selected_size]})"
+            )
+        else:
+            # 显存极度不足，仍尝试小模型
+            selected_size = ModelSize.SMALL
+            self.config.asr_model_path = str(paths.ASR_SMALL_MODEL_DIR)
+            logger.error(
+                f"显存极度不足（可用 {usable_vram:.2f}GB < {min_small_vram:.2f}GB），"
+                f"强制使用小模型 ({MODEL_NAMES[selected_size]})，可能会失败"
+            )
+
+        return selected_size
+
     def _determine_quantization_mode(self) -> QuantizationMode:
         """
         根据配置和可用显存确定量化模式
@@ -692,6 +798,13 @@ class ASRInterface:
             logger.info(f"使用配置的量化模式: {configured_mode.value}")
             return configured_mode
 
+        # 根据模型大小选择显存需求表
+        vram_req = (
+            VRAM_REQUIREMENTS_SMALL
+            if self._actual_model_size == ModelSize.SMALL
+            else VRAM_REQUIREMENTS
+        )
+
         # 自动模式：根据可用显存选择
         available_vram = self._get_available_vram()
         safety_margin = self.config.auto_quantization_safety_margin
@@ -702,20 +815,20 @@ class ASRInterface:
         )
 
         # 按优先级选择量化模式（优先选择精度更高的）
-        if usable_vram >= VRAM_REQUIREMENTS[QuantizationMode.NONE]:
+        if usable_vram >= vram_req[QuantizationMode.NONE]:
             selected_mode = QuantizationMode.NONE
             logger.info(f"显存充足，选择 {selected_mode.value} 模式（无量化）")
-        elif usable_vram >= VRAM_REQUIREMENTS[QuantizationMode.INT8]:
+        elif usable_vram >= vram_req[QuantizationMode.INT8]:
             selected_mode = QuantizationMode.INT8
             logger.warning(f"显存受限，自动切换到 {selected_mode.value} 量化模式")
-        elif usable_vram >= VRAM_REQUIREMENTS[QuantizationMode.INT4]:
+        elif usable_vram >= vram_req[QuantizationMode.INT4]:
             selected_mode = QuantizationMode.INT4
             logger.warning(f"显存严重受限，自动切换到 {selected_mode.value} 量化模式")
         else:
             # 显存极度不足，仍尝试 int4
             selected_mode = QuantizationMode.INT4
             logger.error(
-                f"显存极度不足（可用 {usable_vram:.2f}GB，需要至少 {VRAM_REQUIREMENTS[QuantizationMode.INT4]:.2f}GB），"
+                f"显存极度不足（可用 {usable_vram:.2f}GB，需要至少 {vram_req[QuantizationMode.INT4]:.2f}GB），"
                 f"强制使用 {selected_mode.value} 量化模式，可能会失败"
             )
 
@@ -831,6 +944,7 @@ class ASRInterface:
         logger.debug("=" * 50)
         logger.debug("模型加载参数")
         logger.debug("=" * 50)
+        logger.info(f"  [Model] 模型名称: {self.model_name}")
         logger.debug(f"  ASR 模型路径: {self.config.asr_model_path}")
         logger.debug(f"  对齐器模型路径: {self.config.aligner_model_path}")
         logger.debug(f"  设备: {self.config.device}")
