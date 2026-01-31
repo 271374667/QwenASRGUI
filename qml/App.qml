@@ -138,7 +138,7 @@ ApplicationWindow {
                 Rectangle {
                     id: selectionIndicator
                     width: 3
-                    height: 16
+                    height: 20
                     radius: 1.5
                     color: accentColor
                     x: 0
@@ -159,20 +159,21 @@ ApplicationWindow {
                         }
                     }
 
-                    // 高度动画
+                    // 高度动画 - Fluent 风格：快速收缩 + 柔和回弹
                     SequentialAnimation on height {
                         id: indicatorHeightAnim
                         running: false
 
                         NumberAnimation {
-                            to: 8
-                            duration: 100
-                            easing.type: Easing.InCubic
+                            to: 32
+                            duration: 180
+                            easing.type: Easing.OutExpo
                         }
+
                         NumberAnimation {
-                            to: 16
-                            duration: 100
-                            easing.type: Easing.OutCubic
+                            to: 20
+                            duration: 30
+                            easing.type: Easing.OutExpo
                         }
                     }
                 }
@@ -204,7 +205,7 @@ ApplicationWindow {
                         easing.type: Easing.OutCubic
                     }
                     PropertyAnimation {
-                        property: "x"
+                        property: "y"
                         from: (currentNavIndex > previousNavIndex) ? 30 : -30
                         to: 0
                         duration: 200
