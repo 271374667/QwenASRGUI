@@ -7,6 +7,8 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
+from loguru import logger
+
 from src.utils.hardware import Hardware, HardwareSummary
 from src.utils.memory_limit import MemoryLimit, MemoryLimitConfig, MemoryLimitError
 
@@ -393,41 +395,41 @@ class SystemHandler:
         """打印系统信息和资源限制状态。"""
         summary = self.hardware_summary
 
-        print("=" * 50)
-        print("系统信息")
-        print("=" * 50)
-        print(f"  CPU 核心数: {summary.cpu_cores}")
+        logger.debug("=" * 50)
+        logger.debug("系统信息")
+        logger.debug("=" * 50)
+        logger.debug(f"  CPU 核心数: {summary.cpu_cores}")
         if summary.cpu_max_mhz:
-            print(f"  CPU 最大频率: {summary.cpu_max_mhz} MHz")
-        print(f"  系统内存: {summary.system_memory_bytes / (1024**3):.2f} GB")
+            logger.debug(f"  CPU 最大频率: {summary.cpu_max_mhz} MHz")
+        logger.debug(f"  系统内存: {summary.system_memory_bytes / (1024**3):.2f} GB")
 
         if summary.has_gpu:
-            print(f"  GPU: {summary.gpu_name}")
+            logger.debug(f"  GPU: {summary.gpu_name}")
             if summary.gpu_total_memory_bytes:
-                print(
+                logger.debug(
                     f"  GPU 显存: {summary.gpu_total_memory_bytes / (1024**3):.2f} GB"
                 )
 
-        print()
-        print("=" * 50)
-        print("资源限制")
-        print("=" * 50)
+        logger.debug("")
+        logger.debug("=" * 50)
+        logger.debug("资源限制")
+        logger.debug("=" * 50)
 
         limits = self.get_effective_limits()
-        print(f"  启用: {limits['enabled']}")
-        print(f"  已应用: {limits['applied']}")
+        logger.debug(f"  启用: {limits['enabled']}")
+        logger.debug(f"  已应用: {limits['applied']}")
 
         if limits["system_memory_limit_gb"] is not None:
-            print(f"  系统内存限制: {limits['system_memory_limit_gb']:.2f} GB")
+            logger.debug(f"  系统内存限制: {limits['system_memory_limit_gb']:.2f} GB")
         else:
-            print("  系统内存限制: 无")
+            logger.debug("  系统内存限制: 无")
 
         if limits["gpu_memory_limit_gb"] is not None:
-            print(f"  GPU 显存限制: {limits['gpu_memory_limit_gb']:.2f} GB")
+            logger.debug(f"  GPU 显存限制: {limits['gpu_memory_limit_gb']:.2f} GB")
         else:
-            print("  GPU 显存限制: 无")
+            logger.debug("  GPU 显存限制: 无")
 
-        print("=" * 50)
+        logger.debug("=" * 50)
 
     # ==================== 私有方法 ====================
 
@@ -460,32 +462,32 @@ class SystemHandler:
 
 if __name__ == "__main__":
     # 示例 1: 默认配置（禁用限制）
-    print("示例 1: 默认配置")
+    logger.info("示例 1: 默认配置")
     handler1 = SystemHandler()
     handler1.print_info()
-    print()
+    logger.info("")
 
     # 示例 2: 使用百分比限制
-    print("示例 2: 使用百分比限制 (80% 系统内存, 90% GPU 显存)")
+    logger.info("示例 2: 使用百分比限制 (80% 系统内存, 90% GPU 显存)")
     config2 = SystemHandlerConfig.with_percentage_limits(
         system_memory_percent=80,
         gpu_memory_percent=90,
     )
     handler2 = SystemHandler(config2)
     handler2.print_info()
-    print()
+    logger.info("")
 
     # 示例 3: 使用精确数值限制
-    print("示例 3: 使用精确数值限制 (8GB 系统内存)")
+    logger.info("示例 3: 使用精确数值限制 (8GB 系统内存)")
     config3 = SystemHandlerConfig.with_gb_limits(
         system_memory_gb=8.0,
     )
     handler3 = SystemHandler(config3)
     handler3.print_info()
-    print()
+    logger.info("")
 
     # 示例 4: 应用限制
-    print("示例 4: 应用资源限制")
+    logger.info("示例 4: 应用资源限制")
     config4 = SystemHandlerConfig.with_percentage_limits(
         system_memory_percent=90,
     )
@@ -494,4 +496,4 @@ if __name__ == "__main__":
         handler4.apply_limits()
         handler4.print_info()
     except MemoryLimitError as e:
-        print(f"  应用限制失败: {e}")
+        logger.error(f"  应用限制失败: {e}")

@@ -42,6 +42,21 @@ class QuantizationMode(Enum):
     AUTO = "auto"      # 自动选择
 
 
+class Language(Enum):
+    """语言类型枚举"""
+    CHINESE = "Chinese"
+    ENGLISH = "English"
+    CANTONESE = "Cantonese"
+    FRENCH = "French"
+    GERMAN = "German"
+    ITALIAN = "Italian"
+    JAPANESE = "Japanese"
+    KOREAN = "Korean"
+    PORTUGUESE = "Portuguese"
+    RUSSIAN = "Russian"
+    SPANISH = "Spanish"
+
+
 # 不同量化模式下模型的预估显存需求（GB）
 # 基于 Qwen3-ASR-1.7B + Forced Aligner 模型估算
 # 注意：KV cache 和激活值在推理时仍使用 fp16，需要额外显存
@@ -363,7 +378,7 @@ class ASRInterface:
         self,
         audio_input: Union[str, AudioData],
         text: str,
-        language: str = "Chinese",
+        language: Union[Language, List[Language]] = Language.CHINESE,
     ) -> AlignmentResult:
         """对齐音频和文本，返回时间戳。
 
@@ -377,9 +392,9 @@ class ASRInterface:
         Args:
             audio_input: 音频文件路径或 AudioData 对象。
             text: 需要对齐的文本内容。
-            language: 语言类型，支持 Chinese, English, Cantonese, French,
-                German, Italian, Japanese, Korean, Portuguese, Russian, Spanish。
-                默认为 "Chinese"。
+            language: 语言类型枚举或语言列表。支持 Language.CHINESE, Language.ENGLISH,
+                Language.CANTONESE 等。可传入单个语言或语言列表（例如处理跨语言音频）。
+                默认为 Language.CHINESE。
 
         Returns:
             AlignmentResult: 包含对齐后时间戳的结果对象。
@@ -395,7 +410,7 @@ class ASRInterface:
                 result = asr.align(
                     audio_input="demo.wav",
                     text="你好世界",
-                    language="Chinese"
+                    language=Language.CHINESE
                 )
                 for ts in result.time_stamps:
                     print(f"{ts.text}: {ts.start_time:.2f}s - {ts.end_time:.2f}s")
@@ -403,7 +418,15 @@ class ASRInterface:
             使用 AudioData 对象::
 
                 audio = asr.get_last_audio()  # 从上次转录获取
-                result = asr.align(audio, "修正后的文本", "Chinese")
+                result = asr.align(audio, "修正后的文本", Language.CHINESE)
+
+            多语言对齐（跨语言音频）::
+
+                result = asr.align(
+                    audio_input="mixed.wav",
+                    text="Hello 你好 World",
+                    language=[Language.ENGLISH, Language.CHINESE]
+                )
 
         Note:
             - 对于长音频，建议先分段再分别对齐
@@ -446,11 +469,14 @@ class ASRInterface:
                     "强制对齐器未加载。请确保在配置中指定了 aligner_model_path"
                 )
 
+            # 转换语言参数：枚举 -> 字符串
+            language_param = self._convert_language_to_api_format(language)
+
             # 调用对齐器
             align_results = self._model.forced_aligner.align(
                 audio=audio_tuple,
                 text=text,
-                language=language,
+                language=language_param,
             )
 
             # 转换结果格式
@@ -467,15 +493,18 @@ class ASRInterface:
 
             self._status = ModelStatus.READY
 
+            # 格式化语言信息用于结果
+            language_display = self._format_language_for_display(language)
+
             result = AlignmentResult(
                 text=text,
-                language=language,
+                language=language_display,
                 time_stamps=time_stamps,
                 audio_duration=audio_duration
             )
 
             logger.success(
-                f"对齐完成: 语言={language}, "
+                f"对齐完成: 语言={language_display}, "
                 f"字/词数={result.word_count}, "
                 f"音频时长={audio_duration:.1f}秒"
             )
@@ -491,7 +520,7 @@ class ASRInterface:
     def align_batch(
         self,
         items: List[tuple],
-        language: str = "Chinese",
+        language: Union[Language, List[Language]] = Language.CHINESE,
     ) -> List[AlignmentResult]:
         """批量对齐多个音频-文本对。
 
@@ -500,7 +529,9 @@ class ASRInterface:
         Args:
             items: 音频-文本对列表，每个元素为 (audio_input, text) 元组。
                 audio_input 可以是文件路径或 AudioData 对象。
-            language: 语言类型，默认为 "Chinese"。
+            language: 语言类型枚举或语言列表，默认为 Language.CHINESE。
+                如果提供单个语言，则应用于所有音频；
+                如果提供语言列表，则需要与 items 数量一致。
 
         Returns:
             List[AlignmentResult]: 对齐结果列表，与输入顺序一致。
@@ -513,7 +544,18 @@ class ASRInterface:
                     ("audio1.wav", "第一段文本"),
                     ("audio2.wav", "第二段文本"),
                 ]
-                results = asr.align_batch(items, language="Chinese")
+                results = asr.align_batch(items, language=Language.CHINESE)
+
+            使用多语言列表::
+
+                items = [
+                    ("audio1.wav", "Hello world"),
+                    ("audio2.wav", "你好世界"),
+                ]
+                results = asr.align_batch(
+                    items, 
+                    language=[Language.ENGLISH, Language.CHINESE]
+                )
                 for i, result in enumerate(results):
                     print(f"第 {i+1} 段: {result.word_count} 个字")
         """
@@ -637,6 +679,40 @@ class ASRInterface:
             )
         
         return selected_mode
+
+    def _convert_language_to_api_format(self, language: Union[Language, List[Language]]) -> Union[str, List[str]]:
+        """
+        将 Language 枚举转换为 API 所需的格式
+        
+        Args:
+            language: 单个语言枚举或语言枚举列表
+            
+        Returns:
+            单个语言字符串或语言字符串列表
+        """
+        if isinstance(language, Language):
+            return language.value
+        elif isinstance(language, list):
+            return [lang.value for lang in language]
+        else:
+            raise TypeError(f"不支持的语言类型: {type(language)}")
+
+    def _format_language_for_display(self, language: Union[Language, List[Language]]) -> str:
+        """
+        格式化语言参数用于日志和结果显示
+        
+        Args:
+            language: 单个语言枚举或语言枚举列表
+            
+        Returns:
+            格式化的语言字符串
+        """
+        if isinstance(language, Language):
+            return language.value
+        elif isinstance(language, list):
+            return ", ".join(lang.value for lang in language)
+        else:
+            return str(language)
 
     def _get_lower_quantization_mode(self, current_mode: QuantizationMode) -> Optional[QuantizationMode]:
         """
