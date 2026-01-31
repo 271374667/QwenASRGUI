@@ -138,10 +138,10 @@ ApplicationWindow {
                 Rectangle {
                     id: selectionIndicator
                     width: 3
-                    height: 20
+                    height: 16
                     radius: 1.5
                     color: accentColor
-                    x: 0
+                    x: 4  // 距离左边缘 4px
                     z: 2
 
                     y: {
@@ -159,23 +159,6 @@ ApplicationWindow {
                         }
                     }
 
-                    // 高度动画 - Fluent 风格：快速收缩 + 柔和回弹
-                    SequentialAnimation on height {
-                        id: indicatorHeightAnim
-                        running: false
-
-                        NumberAnimation {
-                            to: 32
-                            duration: 180
-                            easing.type: Easing.OutExpo
-                        }
-
-                        NumberAnimation {
-                            to: 20
-                            duration: 30
-                            easing.type: Easing.OutExpo
-                        }
-                    }
                 }
             }
         }
@@ -231,7 +214,6 @@ ApplicationWindow {
         if (currentNavIndex !== index) {
             previousNavIndex = currentNavIndex
             currentNavIndex = index
-            indicatorHeightAnim.restart()
             stackView.replace(null, page)
         }
     }
@@ -334,11 +316,11 @@ ApplicationWindow {
         Item {
             id: iconContainer
             anchors.centerIn: parent
-            width: 20
-            height: 20
+            width: 24
+            height: 24
 
             // 缩放动画
-            scale: navBtn.isSelected ? 1.3 : 1.0
+            scale: navBtn.isSelected ? 1.2 : 1.0
 
             Behavior on scale {
                 NumberAnimation {
@@ -347,12 +329,13 @@ ApplicationWindow {
                 }
             }
 
-            // 图标 - 直接显示，使用较大的 sourceSize 保证清晰度
+            // 图标 - 直接显示，sourceSize 根据缩放后的实际尺寸计算
             Image {
                 id: icon
                 anchors.fill: parent
                 source: navBtn.iconSource
-                sourceSize: Qt.size(40, 40)  // 2x 尺寸确保高清
+                // 根据最大缩放比例计算 sourceSize，确保放大时不模糊
+                sourceSize: Qt.size(parent.width * 1.2 * 2, parent.height * 1.2 * 2)
                 fillMode: Image.PreserveAspectFit
                 smooth: true
                 antialiasing: true
