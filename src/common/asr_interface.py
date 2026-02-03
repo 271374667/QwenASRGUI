@@ -48,6 +48,7 @@ class QuantizationMode(Enum):
 class Language(Enum):
     """语言类型枚举"""
 
+    AUTO = "Auto"  # 自动检测语言
     CHINESE = "Chinese"
     ENGLISH = "English"
     CANTONESE = "Cantonese"
@@ -837,7 +838,7 @@ class ASRInterface:
 
     def _convert_language_to_api_format(
         self, language: Union[Language, List[Language]]
-    ) -> Union[str, List[str]]:
+    ) -> Union[str, List[str], None]:
         """
         将 Language 枚举转换为 API 所需的格式
 
@@ -845,11 +846,17 @@ class ASRInterface:
             language: 单个语言枚举或语言枚举列表
 
         Returns:
-            单个语言字符串或语言字符串列表
+            单个语言字符串、语言字符串列表，或 None（自动检测）
         """
         if isinstance(language, Language):
+            # AUTO 模式返回 None，让模型自动检测语言
+            if language == Language.AUTO:
+                return None
             return language.value
         elif isinstance(language, list):
+            # 列表中如果包含 AUTO，则返回 None
+            if Language.AUTO in language:
+                return None
             return [lang.value for lang in language]
         else:
             raise TypeError(f"不支持的语言类型: {type(language)}")
