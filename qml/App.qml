@@ -7,10 +7,10 @@ import "./Global"
 
 ApplicationWindow {
     id: window
-    width: 1280
-    height: 720
-    minimumWidth: 960
-    minimumHeight: 540
+    width: 1480
+    height: 920
+    minimumWidth: 1180
+    minimumHeight: 760
     flags: Qt.Window | Qt.FramelessWindowHint
     visible: true
     title: qsTr("QwenASR")

@@ -52,19 +52,20 @@ Rectangle {
         anchors.fill: parent
         clip: true
 
-        ColumnLayout {
+        PageScrollContent {
             width: scrollView.availableWidth
-            spacing: 20
-            anchors.margins: 24
+            spacing: 24
 
             SurfaceCard {
                 Layout.fillWidth: true
                 title: qsTr("运行设置")
                 subtitle: qsTr("设置会自动保存，重载模型后即可应用模型和推理相关配置。")
 
-                RowLayout {
+                GridLayout {
                     Layout.fillWidth: true
-                    spacing: 14
+                    columns: width >= 1120 ? 3 : 1
+                    rowSpacing: 14
+                    columnSpacing: 14
 
                     StatTile {
                         label: qsTr("共享模型")
@@ -107,9 +108,11 @@ Rectangle {
                 title: qsTr("模型设置")
                 subtitle: qsTr("控制共享模型的规模、量化和设备。")
 
-                RowLayout {
+                GridLayout {
                     Layout.fillWidth: true
-                    spacing: 16
+                    columns: width >= 1120 ? 3 : 1
+                    rowSpacing: 16
+                    columnSpacing: 16
 
                     ColumnLayout {
                         Layout.fillWidth: true

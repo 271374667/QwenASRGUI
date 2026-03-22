@@ -46,59 +46,70 @@ Rectangle {
         anchors.fill: parent
         clip: true
 
-        ColumnLayout {
+        PageScrollContent {
             width: scrollView.availableWidth
-            spacing: 20
-            anchors.margins: 24
+            spacing: 24
 
             SurfaceCard {
                 Layout.fillWidth: true
                 title: qsTr("强制对齐")
                 subtitle: qsTr("将已有文本与音频逐词对齐，生成精确的时间戳和字幕。")
 
-                RowLayout {
+                ColumnLayout {
                     Layout.fillWidth: true
-                    spacing: 10
+                    spacing: 12
 
-                    StatusChip {
-                        text: alignmentService.state.modelStatusText
-                        tone: root.statusTone(alignmentService.state.modelStatusText)
-                    }
-
-                    Label {
-                        text: alignmentService.state.modelName + " · " + qsTr("与转录页共享模型")
-                        color: root.secondaryTextColor
+                    RowLayout {
                         Layout.fillWidth: true
+                        spacing: 10
+
+                        StatusChip {
+                            text: alignmentService.state.modelStatusText
+                            tone: root.statusTone(alignmentService.state.modelStatusText)
+                        }
+
+                        Label {
+                            text: alignmentService.state.modelName + " · " + qsTr("与转录页共享模型")
+                            color: root.secondaryTextColor
+                            Layout.fillWidth: true
+                        }
                     }
 
-                    Button {
-                        text: qsTr("加载共享模型")
-                        enabled: transcriptionService.state.canLoadModel
-                        onClicked: transcriptionService.load_model()
-                    }
+                    Flow {
+                        Layout.fillWidth: true
+                        spacing: 10
 
-                    Button {
-                        text: qsTr("重载模型")
-                        enabled: transcriptionService.state.canReloadModel
-                        onClicked: transcriptionService.reload_model()
-                    }
+                        Button {
+                            text: qsTr("加载共享模型")
+                            enabled: transcriptionService.state.canLoadModel
+                            onClicked: transcriptionService.load_model()
+                        }
 
-                    Button {
-                        text: qsTr("强制停止")
-                        enabled: alignmentService.state.canCancelTask || transcriptionService.state.canCancelTask
-                        onClicked: {
-                            if (alignmentService.state.canCancelTask) {
-                                alignmentService.cancel_current_task()
-                            } else {
-                                transcriptionService.cancel_current_task()
+                        Button {
+                            text: qsTr("重载模型")
+                            enabled: transcriptionService.state.canReloadModel
+                            onClicked: transcriptionService.reload_model()
+                        }
+
+                        Button {
+                            text: qsTr("强制停止")
+                            enabled: alignmentService.state.canCancelTask || transcriptionService.state.canCancelTask
+                            onClicked: {
+                                if (alignmentService.state.canCancelTask) {
+                                    alignmentService.cancel_current_task()
+                                } else {
+                                    transcriptionService.cancel_current_task()
+                                }
                             }
                         }
                     }
                 }
 
-                RowLayout {
+                GridLayout {
                     Layout.fillWidth: true
-                    spacing: 14
+                    columns: width >= 1120 ? 3 : 1
+                    rowSpacing: 14
+                    columnSpacing: 14
 
                     StatTile {
                         label: qsTr("当前任务")
@@ -120,9 +131,11 @@ Rectangle {
                 }
             }
 
-            RowLayout {
+            GridLayout {
                 Layout.fillWidth: true
-                spacing: 20
+                columns: width >= 1120 ? 2 : 1
+                rowSpacing: 24
+                columnSpacing: 24
 
                 SurfaceCard {
                     Layout.fillWidth: true
@@ -144,7 +157,7 @@ Rectangle {
                         color: root.secondaryTextColor
                     }
 
-                    RowLayout {
+                    Flow {
                         Layout.fillWidth: true
 
                         Button {
@@ -176,7 +189,7 @@ Rectangle {
                         Component.onCompleted: root.syncLanguageSelection()
                     }
 
-                    RowLayout {
+                    Flow {
                         Layout.fillWidth: true
                         spacing: 10
 
@@ -201,7 +214,7 @@ Rectangle {
                         }
                     }
 
-                    RowLayout {
+                    Flow {
                         Layout.fillWidth: true
                         spacing: 10
 

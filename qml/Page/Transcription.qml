@@ -37,54 +37,63 @@ Rectangle {
         anchors.fill: parent
         clip: true
 
-        ColumnLayout {
+        PageScrollContent {
             width: scrollView.availableWidth
-            spacing: 20
-            anchors.margins: 24
+            spacing: 24
 
             SurfaceCard {
                 Layout.fillWidth: true
                 title: qsTr("语音转录")
                 subtitle: qsTr("共享模型加载后，可将音频或视频文件转为全文文本与 SRT 字幕。")
 
-                RowLayout {
+                ColumnLayout {
                     Layout.fillWidth: true
-                    spacing: 10
+                    spacing: 12
 
-                    StatusChip {
-                        text: transcriptionService.state.modelStatusText
-                        tone: root.statusTone(transcriptionService.state.modelStatusText)
-                    }
-
-                    Label {
-                        text: transcriptionService.state.modelName + " · " + transcriptionService.state.modelDetails
-                        color: root.secondaryTextColor
+                    RowLayout {
                         Layout.fillWidth: true
-                        elide: Text.ElideRight
+                        spacing: 10
+
+                        StatusChip {
+                            text: transcriptionService.state.modelStatusText
+                            tone: root.statusTone(transcriptionService.state.modelStatusText)
+                        }
+
+                        Label {
+                            text: transcriptionService.state.modelName + " · " + transcriptionService.state.modelDetails
+                            color: root.secondaryTextColor
+                            Layout.fillWidth: true
+                            elide: Text.ElideRight
+                        }
                     }
 
-                    Button {
-                        text: qsTr("加载模型")
-                        enabled: transcriptionService.state.canLoadModel
-                        onClicked: transcriptionService.load_model()
-                    }
+                    Flow {
+                        Layout.fillWidth: true
+                        spacing: 10
 
-                    Button {
-                        text: qsTr("重载模型")
-                        enabled: transcriptionService.state.canReloadModel
-                        onClicked: transcriptionService.reload_model()
-                    }
+                        Button {
+                            text: qsTr("加载模型")
+                            enabled: transcriptionService.state.canLoadModel
+                            onClicked: transcriptionService.load_model()
+                        }
 
-                    Button {
-                        text: qsTr("卸载")
-                        enabled: transcriptionService.state.canUnloadModel
-                        onClicked: transcriptionService.unload_model()
-                    }
+                        Button {
+                            text: qsTr("重载模型")
+                            enabled: transcriptionService.state.canReloadModel
+                            onClicked: transcriptionService.reload_model()
+                        }
 
-                    Button {
-                        text: qsTr("强制停止")
-                        enabled: transcriptionService.state.canCancelTask
-                        onClicked: transcriptionService.cancel_current_task()
+                        Button {
+                            text: qsTr("卸载")
+                            enabled: transcriptionService.state.canUnloadModel
+                            onClicked: transcriptionService.unload_model()
+                        }
+
+                        Button {
+                            text: qsTr("强制停止")
+                            enabled: transcriptionService.state.canCancelTask
+                            onClicked: transcriptionService.cancel_current_task()
+                        }
                     }
                 }
 
@@ -96,9 +105,11 @@ Rectangle {
                     value: transcriptionService.state.loadingProgress
                 }
 
-                RowLayout {
+                GridLayout {
                     Layout.fillWidth: true
-                    spacing: 14
+                    columns: width >= 1120 ? 3 : 1
+                    rowSpacing: 14
+                    columnSpacing: 14
 
                     StatTile {
                         label: qsTr("当前任务")
@@ -120,20 +131,21 @@ Rectangle {
                 }
             }
 
-            RowLayout {
+            GridLayout {
                 Layout.fillWidth: true
-                spacing: 20
+                columns: width >= 1320 ? 2 : 1
+                rowSpacing: 24
+                columnSpacing: 24
 
                 SurfaceCard {
                     Layout.fillWidth: true
-                    Layout.preferredWidth: 2
                     title: qsTr("输入文件")
                     subtitle: qsTr("支持拖放和文件对话框选择。")
 
                     Rectangle {
                         id: dropZone
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 220
+                        Layout.preferredHeight: 240
                         radius: 16
                         color: dropArea.containsDrag ? Qt.darker(root.dropColor, 1.04) : root.dropColor
                         border.width: 1
@@ -224,11 +236,10 @@ Rectangle {
 
                 SurfaceCard {
                     Layout.fillWidth: true
-                    Layout.preferredWidth: 1
                     title: qsTr("输出操作")
                     subtitle: qsTr("执行转录、复制结果或导出文本。")
 
-                    RowLayout {
+                    Flow {
                         Layout.fillWidth: true
                         spacing: 10
 
@@ -259,7 +270,7 @@ Rectangle {
                         }
                     }
 
-                    RowLayout {
+                    Flow {
                         Layout.fillWidth: true
                         spacing: 10
 
@@ -274,8 +285,6 @@ Rectangle {
                             enabled: transcriptionService.state.canExportSubtitle
                             onClicked: transcriptionService.copy_subtitle()
                         }
-
-                        Item { Layout.fillWidth: true }
 
                         BusyIndicator {
                             running: transcriptionService.state.isBusy
@@ -313,7 +322,7 @@ Rectangle {
 
                 TextArea {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 240
+                    Layout.preferredHeight: 260
                     readOnly: true
                     wrapMode: TextEdit.Wrap
                     text: transcriptionService.state.transcriptText !== "" ? transcriptionService.state.transcriptText : qsTr("转录结果会显示在这里。")

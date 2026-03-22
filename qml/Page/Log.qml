@@ -47,19 +47,20 @@ Rectangle {
         anchors.fill: parent
         clip: true
 
-        ColumnLayout {
+        PageScrollContent {
             width: scrollView.availableWidth
-            spacing: 20
-            anchors.margins: 24
+            spacing: 24
 
             SurfaceCard {
                 Layout.fillWidth: true
                 title: qsTr("运行日志")
                 subtitle: qsTr("汇总模型加载、转录和对齐过程中的所有运行日志。")
 
-                RowLayout {
+                GridLayout {
                     Layout.fillWidth: true
-                    spacing: 14
+                    columns: width >= 1120 ? 3 : 1
+                    rowSpacing: 14
+                    columnSpacing: 14
 
                     StatTile {
                         label: qsTr("日志总数")
