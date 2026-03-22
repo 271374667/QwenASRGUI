@@ -6,10 +6,6 @@ from typing import Any, Dict, List, Optional
 
 from PySide6.QtCore import QObject, Property, QSettings, Signal, Slot
 
-from src.common.asr.interface import ASRConfig
-from src.common.asr.model_holder import ModelConfig, ModelSize, QuantizationMode
-from src.common.breakline_algorithm import BreaklineConfig, GapDetectionMethod
-from src.common.system_handler import SystemHandlerConfig
 from src.utils.hardware import Hardware
 
 
@@ -99,12 +95,12 @@ class SettingsService(QObject):
     def breakline_method_options(self) -> List[Dict[str, str]]:
         """返回字幕分行算法选项。"""
         return [
-            {"value": GapDetectionMethod.SILERO_VAD.value, "label": "Silero VAD"},
-            {"value": GapDetectionMethod.PERCENTILE.value, "label": "百分位数"},
-            {"value": GapDetectionMethod.IQR.value, "label": "四分位距"},
-            {"value": GapDetectionMethod.OTSU.value, "label": "Otsu"},
-            {"value": GapDetectionMethod.FIXED_THRESHOLD.value, "label": "固定阈值"},
-            {"value": GapDetectionMethod.CLUSTERING.value, "label": "K-Means"},
+            {"value": "silero_vad", "label": "Silero VAD"},
+            {"value": "percentile", "label": "百分位数"},
+            {"value": "iqr", "label": "四分位距"},
+            {"value": "otsu", "label": "Otsu"},
+            {"value": "fixed", "label": "固定阈值"},
+            {"value": "clustering", "label": "K-Means"},
         ]
 
     @Slot(str, object, result=bool)
@@ -127,8 +123,10 @@ class SettingsService(QObject):
             self._storage.setValue(key, value)
         self.settings_changed.emit()
 
-    def build_model_config(self) -> ModelConfig:
+    def build_model_config(self):
         """构建模型加载配置。"""
+        from src.common.asr.model_holder import ModelConfig
+
         return ModelConfig(
             model_size=self._map_model_size(self._settings["modelSize"]),
             quantization_mode=self._map_quantization_mode(
@@ -137,16 +135,20 @@ class SettingsService(QObject):
             device=self._resolve_device(self._settings["device"]),
         )
 
-    def build_asr_config(self) -> ASRConfig:
+    def build_asr_config(self):
         """构建 ASR 推理配置。"""
+        from src.common.asr.interface import ASRConfig
+
         return ASRConfig(
             segment_duration=float(self._settings["segmentDuration"]),
             inference_delay=float(self._settings["inferenceDelay"]),
             low_priority_mode=bool(self._settings["lowPriorityMode"]),
         )
 
-    def build_breakline_config(self) -> BreaklineConfig:
+    def build_breakline_config(self):
         """构建字幕分行配置。"""
+        from src.common.breakline_algorithm import BreaklineConfig, GapDetectionMethod
+
         return BreaklineConfig(
             gap_detection_method=GapDetectionMethod(
                 str(self._settings["gapDetectionMethod"])
@@ -155,8 +157,10 @@ class SettingsService(QObject):
             max_duration_per_line=float(self._settings["maxDurationPerLine"]),
         )
 
-    def build_system_config(self) -> SystemHandlerConfig:
+    def build_system_config(self):
         """构建系统资源限制配置。"""
+        from src.common.system_handler import SystemHandlerConfig
+
         if not bool(self._settings["enableMemoryLimit"]):
             return SystemHandlerConfig(enable_memory_limit=False)
 
@@ -213,8 +217,10 @@ class SettingsService(QObject):
 
         return value
 
-    def _map_model_size(self, value: str) -> ModelSize:
+    def _map_model_size(self, value: str):
         """将字符串映射为模型大小枚举。"""
+        from src.common.asr.model_holder import ModelSize
+
         mapping = {
             "auto": ModelSize.AUTO,
             "large": ModelSize.LARGE,
@@ -222,8 +228,10 @@ class SettingsService(QObject):
         }
         return mapping.get(value, ModelSize.AUTO)
 
-    def _map_quantization_mode(self, value: str) -> QuantizationMode:
+    def _map_quantization_mode(self, value: str):
         """将字符串映射为量化模式枚举。"""
+        from src.common.asr.model_holder import QuantizationMode
+
         mapping = {
             "auto": QuantizationMode.AUTO,
             "fp16": QuantizationMode.NONE,

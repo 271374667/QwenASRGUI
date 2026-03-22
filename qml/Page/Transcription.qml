@@ -131,11 +131,9 @@ Rectangle {
                 }
             }
 
-            GridLayout {
+            ColumnLayout {
                 Layout.fillWidth: true
-                columns: width >= 1320 ? 2 : 1
-                rowSpacing: 24
-                columnSpacing: 24
+                spacing: 24
 
                 SurfaceCard {
                     Layout.fillWidth: true

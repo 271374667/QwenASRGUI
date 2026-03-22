@@ -5,10 +5,9 @@ from __future__ import annotations
 from importlib import metadata
 from typing import Any, Dict, Optional
 
-from PySide6.QtCore import QObject, Property, Signal, Slot
+from PySide6.QtCore import QObject, Property, QTimer, Signal, Slot
 from PySide6.QtGui import QGuiApplication
-
-from src.utils.hardware import Hardware
+from qthreadwithreturn import QThreadWithReturn
 
 
 class ApplicationService(QObject):
@@ -38,14 +37,22 @@ class ApplicationService(QObject):
     def __init__(self, parent: Optional[QObject] = None) -> None:
         """初始化应用服务。"""
         super().__init__(parent)
-        self._hardware = Hardware()
+        self._hardware_thread: Optional[QThreadWithReturn] = None
         self._state: Dict[str, Any] = {
             "appName": "QwenASR",
             "version": self._detect_version(),
             "isBusy": False,
             "currentOperation": "",
-            "hardwareSummary": self._build_hardware_summary(),
+            "hardwareSummary": {
+                "cpuCores": "--",
+                "cpuMaxMhz": "--",
+                "hasGpu": False,
+                "gpuName": "检测中...",
+                "gpuMemoryGb": 0.0,
+                "systemMemoryGb": 0.0,
+            },
         }
+        QTimer.singleShot(0, self.refresh_hardware_summary)
 
     @Property("QVariantMap", notify=state_changed)
     def state(self) -> Dict[str, Any]:
@@ -88,6 +95,26 @@ class ApplicationService(QObject):
         if app is not None:
             app.quit()
 
+    @Slot()
+    def shutdown(self) -> None:
+        """关闭后台探测线程。"""
+        if self._hardware_thread is not None and self._hardware_thread.running():
+            self._hardware_thread.cancel(force_stop=True)
+
+    @Slot()
+    def refresh_hardware_summary(self) -> None:
+        """后台刷新硬件摘要，避免阻塞首屏显示。"""
+        if self._hardware_thread is not None and self._hardware_thread.running():
+            return
+
+        thread = QThreadWithReturn(self._detect_hardware_summary_worker, thread_name="hardware_probe")
+        thread.setParent(self)
+        self._hardware_thread = thread
+        thread.add_done_callback(self._on_hardware_summary_ready)
+        thread.add_failure_callback(self._on_hardware_summary_failed)
+        thread.finished_signal.connect(self._on_hardware_summary_finished)
+        thread.start()
+
     def _detect_version(self) -> str:
         """检测应用版本。"""
         try:
@@ -95,9 +122,11 @@ class ApplicationService(QObject):
         except metadata.PackageNotFoundError:
             return "0.1.0-dev"
 
-    def _build_hardware_summary(self) -> Dict[str, Any]:
-        """构建硬件摘要字典。"""
-        summary = self._hardware.summary()
+    def _detect_hardware_summary_worker(self) -> Dict[str, Any]:
+        """在后台线程中探测硬件信息。"""
+        from src.utils.hardware import Hardware
+
+        summary = Hardware().summary()
         return {
             "cpuCores": summary.cpu_cores,
             "cpuMaxMhz": summary.cpu_max_mhz,
@@ -110,3 +139,27 @@ class ApplicationService(QObject):
             ),
             "systemMemoryGb": round(summary.system_memory_bytes / (1024**3), 2),
         }
+
+    def _on_hardware_summary_ready(self, summary: Dict[str, Any]) -> None:
+        """接收后台硬件探测结果。"""
+        self._state["hardwareSummary"] = summary
+        self.state_changed.emit()
+
+    def _on_hardware_summary_failed(self, _error: object) -> None:
+        """硬件探测失败时保持默认值。"""
+        self._state["hardwareSummary"] = {
+            "cpuCores": "--",
+            "cpuMaxMhz": "--",
+            "hasGpu": False,
+            "gpuName": "检测失败",
+            "gpuMemoryGb": 0.0,
+            "systemMemoryGb": 0.0,
+        }
+        self.state_changed.emit()
+
+    def _on_hardware_summary_finished(self) -> None:
+        """清理后台探测线程。"""
+        thread = self._hardware_thread
+        self._hardware_thread = None
+        if thread is not None:
+            thread.deleteLater()

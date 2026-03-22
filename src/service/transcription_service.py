@@ -11,9 +11,6 @@ from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QFileDialog
 from qthreadwithreturn import QThreadWithReturn
 
-from src.common.asr import ASRService
-from src.common.breakline_algorithm import BreaklineAlgorithm
-from src.common.system_handler import SystemHandler
 from src.service.application_service import ApplicationService
 from src.service.service_utils import (
     MEDIA_FILE_FILTER,
@@ -55,7 +52,8 @@ class TranscriptionService(QObject):
         super().__init__(parent)
         self._application_service = application_service
         self._settings_service = settings_service
-        self._asr_service = ASRService()
+        self._asr_service = None
+        self._asr_signals_connected = False
         self._task_thread: Optional[QThreadWithReturn] = None
         self._cancel_requested = False
         self._timeline_items: List[Dict[str, Any]] = []
@@ -90,8 +88,6 @@ class TranscriptionService(QObject):
             "canExportTranscript": False,
             "canExportSubtitle": False,
         }
-        self._asr_service.signals.status_changed.connect(self._on_shared_status_changed)
-        self._asr_service.signals.loading_progress.connect(self._on_loading_progress)
         self._refresh_shared_model_state()
 
     @Property("QVariantMap", notify=state_changed)
@@ -267,36 +263,43 @@ class TranscriptionService(QObject):
         self.state_changed.emit()
 
     def _load_model_worker(self) -> Dict[str, Any]:
+        asr_service = self._ensure_asr_service()
         system_config = self._settings_service.build_system_config()
         if system_config.enable_memory_limit:
+            from src.common.system_handler import SystemHandler
+
             SystemHandler(system_config).apply_limits()
 
-        success = self._asr_service.load_model(self._settings_service.build_model_config())
+        success = asr_service.load_model(self._settings_service.build_model_config())
         if not success:
             raise RuntimeError("模型加载失败")
 
-        self._asr_service.configure_interface(self._settings_service.build_asr_config())
+        asr_service.configure_interface(self._settings_service.build_asr_config())
         return {"success": True}
 
     def _reload_model_worker(self) -> Dict[str, Any]:
+        asr_service = self._ensure_asr_service()
         system_config = self._settings_service.build_system_config()
         if system_config.enable_memory_limit:
+            from src.common.system_handler import SystemHandler
+
             SystemHandler(system_config).apply_limits()
 
-        success = self._asr_service.reload_model(self._settings_service.build_model_config())
+        success = asr_service.reload_model(self._settings_service.build_model_config())
         if not success:
             raise RuntimeError("模型重新加载失败")
 
-        self._asr_service.configure_interface(self._settings_service.build_asr_config())
+        asr_service.configure_interface(self._settings_service.build_asr_config())
         return {"success": True}
 
     def _unload_model_worker(self) -> Dict[str, Any]:
-        self._asr_service.unload_model()
+        self._ensure_asr_service().unload_model()
         return {"success": True}
 
     def _transcribe_worker(self) -> Dict[str, Any]:
-        self._asr_service.configure_interface(self._settings_service.build_asr_config())
-        result = self._asr_service.transcribe(
+        asr_service = self._ensure_asr_service()
+        asr_service.configure_interface(self._settings_service.build_asr_config())
+        result = asr_service.transcribe(
             str(self._state["selectedFilePath"]),
             return_time_stamps=True,
             show_progress=False,
@@ -307,8 +310,10 @@ class TranscriptionService(QObject):
         lines: List[Dict[str, Any]] = []
         subtitle_text = ""
         if result.time_stamps:
+            from src.common.breakline_algorithm import BreaklineAlgorithm
+
             breakline = BreaklineAlgorithm(self._settings_service.build_breakline_config())
-            audio_data = self._asr_service.get_last_audio()
+            audio_data = asr_service.get_last_audio()
             aggregated = (
                 breakline.aggregate_with_audio(result.time_stamps, audio_data.data, audio_data.sample_rate)
                 if audio_data is not None
@@ -356,17 +361,26 @@ class TranscriptionService(QObject):
         thread.start()
 
     def _refresh_shared_model_state(self) -> None:
-        model_ready = self._asr_service.is_ready
-        quantization = (
-            self._asr_service.actual_quantization_mode.value
-            if self._asr_service.actual_quantization_mode is not None
-            else "auto"
-        )
+        if self._asr_service is None:
+            model_ready = False
+            model_status_text = "未加载"
+            model_name = "Qwen3-ASR"
+            quantization = "auto"
+        else:
+            model_ready = self._asr_service.is_ready
+            model_status_text = self._asr_service.status.value
+            model_name = self._asr_service.model_name
+            quantization = (
+                self._asr_service.actual_quantization_mode.value
+                if self._asr_service.actual_quantization_mode is not None
+                else "auto"
+            )
+
         self._state.update(
             {
                 "modelReady": model_ready,
-                "modelStatusText": self._asr_service.status.value,
-                "modelName": self._asr_service.model_name,
+                "modelStatusText": model_status_text,
+                "modelName": model_name,
                 "modelDetails": f"量化模式: {quantization}" if model_ready else "共享模型尚未加载",
                 "canLoadModel": (not model_ready) and not self._state["isBusy"],
                 "canUnloadModel": model_ready and not self._state["isBusy"],
@@ -440,12 +454,26 @@ class TranscriptionService(QObject):
             self._state["taskStatusText"] = "任务已强制停止"
             self._state["lastError"] = ""
         self._cancel_requested = False
-        if not self._asr_service.is_ready:
+        if self._asr_service is None or not self._asr_service.is_ready:
             self._state["loadingProgress"] = 0
         self._application_service.finish_operation()
         self._refresh_shared_model_state()
         if thread is not None:
             thread.deleteLater()
+
+    def _ensure_asr_service(self):
+        """按需创建并连接共享 ASR 服务。"""
+        if self._asr_service is None:
+            from src.common.asr import ASRService
+
+            self._asr_service = ASRService()
+
+        if not self._asr_signals_connected:
+            self._asr_service.signals.status_changed.connect(self._on_shared_status_changed)
+            self._asr_service.signals.loading_progress.connect(self._on_loading_progress)
+            self._asr_signals_connected = True
+
+        return self._asr_service
 
     def _copy_text(self, text: str) -> bool:
         if not text:

@@ -7,8 +7,10 @@ from typing import Any, Dict, List, Optional
 
 from PySide6.QtCore import QUrl
 
-from src.common.media_handler import AUDIO_EXTENSIONS, VIDEO_EXTENSIONS
 from src.core.vo import AggregatedLine, TimeStampItem
+
+AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac", ".wma"}
+VIDEO_EXTENSIONS = {".mp4", ".mkv", ".mov", ".avi", ".webm", ".flv", ".wmv"}
 
 MEDIA_FILE_FILTER = (
     "媒体文件 (*.mp3 *.wav *.flac *.ogg *.m4a *.aac *.wma *.mp4 *.mkv *.mov *.avi *.webm *.flv *.wmv);;"

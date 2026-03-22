@@ -11,8 +11,6 @@ from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QFileDialog
 from qthreadwithreturn import QThreadWithReturn
 
-from src.common.asr import ASRService, Language
-from src.common.breakline_algorithm import BreaklineAlgorithm
 from src.service.application_service import ApplicationService
 from src.service.service_utils import (
     MEDIA_FILE_FILTER,
@@ -55,7 +53,8 @@ class AlignmentService(QObject):
         super().__init__(parent)
         self._application_service = application_service
         self._settings_service = settings_service
-        self._asr_service = ASRService()
+        self._asr_service = None
+        self._asr_signals_connected = False
         self._task_thread: Optional[QThreadWithReturn] = None
         self._cancel_requested = False
         self._line_items: List[Dict[str, Any]] = []
@@ -95,7 +94,6 @@ class AlignmentService(QObject):
             "canCancelTask": False,
             "canExportSubtitle": False,
         }
-        self._asr_service.signals.status_changed.connect(self._on_shared_status_changed)
         self._refresh_shared_model_state()
 
     @Property("QVariantMap", notify=state_changed)
@@ -158,13 +156,15 @@ class AlignmentService(QObject):
 
     @Slot()
     def start_alignment(self) -> None:
+        asr_service = self._ensure_asr_service()
+
         if not self._state["selectedFilePath"]:
             self._set_error("请先选择音频文件")
             return
         if not str(self._state["inputText"]).strip():
             self._set_error("请输入待对齐文本")
             return
-        if not self._asr_service.is_ready:
+        if not asr_service.is_ready:
             self._set_error("共享模型尚未加载，请先在转录页加载模型")
             return
 
@@ -249,15 +249,18 @@ class AlignmentService(QObject):
         self.state_changed.emit()
 
     def _align_worker(self) -> Dict[str, Any]:
-        self._asr_service.configure_interface(self._settings_service.build_asr_config())
-        result = self._asr_service.align(
+        asr_service = self._ensure_asr_service()
+        asr_service.configure_interface(self._settings_service.build_asr_config())
+        result = asr_service.align(
             str(self._state["selectedFilePath"]),
             str(self._state["inputText"]),
             self._map_language(str(self._state["selectedLanguage"])),
         )
 
+        from src.common.breakline_algorithm import BreaklineAlgorithm
+
         breakline = BreaklineAlgorithm(self._settings_service.build_breakline_config())
-        audio_data = self._asr_service.get_last_audio()
+        audio_data = asr_service.get_last_audio()
         aggregated = (
             breakline.aggregate_with_audio(result.time_stamps, audio_data.data, audio_data.sample_rate)
             if audio_data is not None
@@ -280,19 +283,21 @@ class AlignmentService(QObject):
         }
 
     def _refresh_shared_model_state(self) -> None:
-        model_ready = self._asr_service.is_ready
+        model_ready = self._asr_service is not None and self._asr_service.is_ready
         self._state.update(
             {
                 "modelReady": model_ready,
-                "modelStatusText": self._asr_service.status.value,
-                "modelName": self._asr_service.model_name,
+                "modelStatusText": self._asr_service.status.value if self._asr_service is not None else "未加载",
+                "modelName": self._asr_service.model_name if self._asr_service is not None else "Qwen3-ASR",
                 "canStartAlignment": bool(self._state["selectedFilePath"]) and bool(str(self._state["inputText"]).strip()) and model_ready and not self._state["isBusy"],
                 "canCancelTask": self._state["isBusy"],
             }
         )
         self.state_changed.emit()
 
-    def _map_language(self, language_value: str) -> Language:
+    def _map_language(self, language_value: str):
+        from src.common.asr import Language
+
         for language in Language:
             if language.value == language_value:
                 return language
@@ -347,6 +352,19 @@ class AlignmentService(QObject):
         self._refresh_shared_model_state()
         if thread is not None:
             thread.deleteLater()
+
+    def _ensure_asr_service(self):
+        """按需创建并连接共享 ASR 服务。"""
+        if self._asr_service is None:
+            from src.common.asr import ASRService
+
+            self._asr_service = ASRService()
+
+        if not self._asr_signals_connected:
+            self._asr_service.signals.status_changed.connect(self._on_shared_status_changed)
+            self._asr_signals_connected = True
+
+        return self._asr_service
 
     def _copy_text(self, text: str) -> bool:
         if not text:

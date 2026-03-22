@@ -64,12 +64,12 @@ Rectangle {
                         spacing: 10
 
                         StatusChip {
-                            text: alignmentService.state.modelStatusText
-                            tone: root.statusTone(alignmentService.state.modelStatusText)
+                            text: transcriptionService.state.modelStatusText
+                            tone: root.statusTone(transcriptionService.state.modelStatusText)
                         }
 
                         Label {
-                            text: alignmentService.state.modelName + " · " + qsTr("与转录页共享模型")
+                            text: transcriptionService.state.modelName + " · " + qsTr("与转录页共享模型")
                             color: root.secondaryTextColor
                             Layout.fillWidth: true
                         }
@@ -196,7 +196,7 @@ Rectangle {
                         Button {
                             text: qsTr("开始对齐")
                             highlighted: true
-                            enabled: alignmentService.state.canStartAlignment
+                            enabled: alignmentService.state.selectedFilePath !== "" && alignmentService.state.inputText.trim() !== "" && transcriptionService.state.modelReady && !alignmentService.state.isBusy
                             icon.source: ImagePath.timePicker
                             onClicked: alignmentService.start_alignment()
                         }

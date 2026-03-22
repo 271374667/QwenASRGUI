@@ -11,17 +11,18 @@ from PySide6.QtQuickControls2 import QQuickStyle
 from PySide6.QtWidgets import QApplication
 
 from src.core.paths import PROJECT_DIR
-from src.service import (
-    AlignmentService,
-    ApplicationService,
-    LogService,
-    SettingsService,
-    TranscriptionService,
-)
 
 
 def main() -> int:
     """启动 GUI 应用。"""
+    from src.service import (
+        AlignmentService,
+        ApplicationService,
+        LogService,
+        SettingsService,
+        TranscriptionService,
+    )
+
     QQuickStyle.setStyle("FluentWinUI3")
 
     app = QApplication(sys.argv)
@@ -52,6 +53,7 @@ def main() -> int:
         return 1
 
     logger.info("QwenASR GUI 启动完成")
+    app.aboutToQuit.connect(application_service.shutdown)
     app.aboutToQuit.connect(log_service.shutdown)
     return app.exec()
 
