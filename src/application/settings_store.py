@@ -1,4 +1,4 @@
-"""应用设置服务。"""
+"""应用设置存储。"""
 
 from __future__ import annotations
 
@@ -25,33 +25,14 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
 }
 
 
-class SettingsService(QObject):
-    """管理 GUI 运行配置与持久化设置。
-
-    该服务负责维护模型加载、推理、字幕分行和资源限制相关配置，并使用
-    `QSettings` 进行本地持久化。QML 页面通过 `settings` 与若干选项列表
-    访问和修改配置。
-
-    Attributes:
-        settings_changed: 配置变化通知。
-        options_changed: 选项列表变化通知。
-
-    Example:
-        基本用法::
-
-            settings_service = SettingsService()
-            settings_service.update_setting("modelSize", "small")
-            model_config = settings_service.build_model_config()
-
-    Note:
-        设置更新会立即保存到本地，下次启动时自动恢复。
-    """
+class SettingsStore(QObject):
+    """管理 GUI 运行配置与持久化设置。"""
 
     settings_changed = Signal()
     options_changed = Signal()
 
     def __init__(self, parent: Optional[QObject] = None) -> None:
-        """初始化设置服务。"""
+        """初始化设置存储。"""
         super().__init__(parent)
         self._storage = QSettings("QwenASRGUI", "QwenASRGUI")
         self._hardware = Hardware()
@@ -60,7 +41,7 @@ class SettingsService(QObject):
 
     @Property("QVariantMap", notify=settings_changed)
     def settings(self) -> Dict[str, Any]:
-        """返回 QML 可绑定的设置字典。"""
+        """返回可绑定的设置字典。"""
         return dict(self._settings)
 
     @Property("QVariantList", notify=options_changed)
@@ -125,19 +106,31 @@ class SettingsService(QObject):
 
     def build_model_config(self):
         """构建模型加载配置。"""
-        from src.common.asr.model_holder import ModelConfig
+        from src.model import ModelConfig, ModelSize, QuantizationMode
 
+        model_size_mapping = {
+            "auto": ModelSize.AUTO,
+            "large": ModelSize.LARGE,
+            "small": ModelSize.SMALL,
+        }
+        quantization_mapping = {
+            "auto": QuantizationMode.AUTO,
+            "fp16": QuantizationMode.NONE,
+            "int8": QuantizationMode.INT8,
+            "int4": QuantizationMode.INT4,
+        }
         return ModelConfig(
-            model_size=self._map_model_size(self._settings["modelSize"]),
-            quantization_mode=self._map_quantization_mode(
-                self._settings["quantizationMode"]
+            model_size=model_size_mapping.get(self._settings["modelSize"], ModelSize.AUTO),
+            quantization_mode=quantization_mapping.get(
+                self._settings["quantizationMode"],
+                QuantizationMode.AUTO,
             ),
             device=self._resolve_device(self._settings["device"]),
         )
 
     def build_asr_config(self):
         """构建 ASR 推理配置。"""
-        from src.common.asr.interface import ASRConfig
+        from src.model import ASRConfig
 
         return ASRConfig(
             segment_duration=float(self._settings["segmentDuration"]),
@@ -147,19 +140,17 @@ class SettingsService(QObject):
 
     def build_breakline_config(self):
         """构建字幕分行配置。"""
-        from src.common.breakline_algorithm import BreaklineConfig, GapDetectionMethod
+        from src.model import BreaklineConfig, GapDetectionMethod
 
         return BreaklineConfig(
-            gap_detection_method=GapDetectionMethod(
-                str(self._settings["gapDetectionMethod"])
-            ),
+            gap_detection_method=GapDetectionMethod(str(self._settings["gapDetectionMethod"])),
             max_chars_per_line=int(self._settings["maxCharsPerLine"]),
             max_duration_per_line=float(self._settings["maxDurationPerLine"]),
         )
 
     def build_system_config(self):
         """构建系统资源限制配置。"""
-        from src.common.system_handler import SystemHandlerConfig
+        from src.model import SystemHandlerConfig
 
         if not bool(self._settings["enableMemoryLimit"]):
             return SystemHandlerConfig(enable_memory_limit=False)
@@ -216,29 +207,6 @@ class SettingsService(QObject):
             return max(10.0, min(100.0, float(value)))
 
         return value
-
-    def _map_model_size(self, value: str):
-        """将字符串映射为模型大小枚举。"""
-        from src.common.asr.model_holder import ModelSize
-
-        mapping = {
-            "auto": ModelSize.AUTO,
-            "large": ModelSize.LARGE,
-            "small": ModelSize.SMALL,
-        }
-        return mapping.get(value, ModelSize.AUTO)
-
-    def _map_quantization_mode(self, value: str):
-        """将字符串映射为量化模式枚举。"""
-        from src.common.asr.model_holder import QuantizationMode
-
-        mapping = {
-            "auto": QuantizationMode.AUTO,
-            "fp16": QuantizationMode.NONE,
-            "int8": QuantizationMode.INT8,
-            "int4": QuantizationMode.INT4,
-        }
-        return mapping.get(value, QuantizationMode.AUTO)
 
     def _resolve_device(self, value: str) -> str:
         """解析最终设备名称。"""

@@ -8,11 +8,7 @@ import "../Component"
 Rectangle {
     id: root
 
-    property var applicationService
-    property var settingsService
-    property var logService
-    property var transcriptionService
-    property var alignmentService
+    required property var viewModel
 
     readonly property bool isDark: Application.styleHints.colorScheme === Qt.ColorScheme.Dark
     readonly property color backgroundColor: isDark ? "#1c1c1c" : "#f6f6f6"
@@ -30,7 +26,7 @@ Rectangle {
     }
 
     function filteredEntries() {
-        let source = logService.entries
+        let source = viewModel.entries
         let text = searchField.text.toLowerCase()
         let level = levelCombo.currentText
         return source.filter(function(item) {
@@ -64,13 +60,13 @@ Rectangle {
 
                     StatTile {
                         label: qsTr("日志总数")
-                        value: String(logService.entry_count)
+                        value: String(viewModel.entry_count)
                         hint: qsTr("当前会话内保留的日志条目")
                     }
 
                     StatTile {
                         label: qsTr("当前任务")
-                        value: applicationService.state.currentOperation !== "" ? applicationService.state.currentOperation : qsTr("空闲")
+                        value: viewModel.state.currentOperation !== "" ? viewModel.state.currentOperation : qsTr("空闲")
                         hint: qsTr("全局任务锁当前占用状态")
                     }
 
@@ -87,14 +83,14 @@ Rectangle {
 
                     Button {
                         text: qsTr("导出日志")
-                        enabled: logService.entry_count > 0
-                        onClicked: logService.export_logs_with_dialog()
+                        enabled: viewModel.entry_count > 0
+                        onClicked: viewModel.export_logs_with_dialog()
                     }
 
                     Button {
                         text: qsTr("清空日志")
-                        enabled: logService.entry_count > 0
-                        onClicked: logService.clear_entries()
+                        enabled: viewModel.entry_count > 0
+                        onClicked: viewModel.clear_entries()
                     }
                 }
             }

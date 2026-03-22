@@ -9,11 +9,7 @@ import "../Global"
 Rectangle {
     id: root
 
-    property var applicationService
-    property var settingsService
-    property var logService
-    property var transcriptionService
-    property var alignmentService
+    required property var viewModel
 
     readonly property bool isDark: Application.styleHints.colorScheme === Qt.ColorScheme.Dark
     readonly property color backgroundColor: isDark ? "#1c1c1c" : "#f6f6f6"
@@ -28,8 +24,8 @@ Rectangle {
     }
 
     function syncLanguageSelection() {
-        let options = alignmentService.language_options
-        let value = alignmentService.state.selectedLanguage
+        let options = viewModel.language_options
+        let value = viewModel.state.selectedLanguage
         for (let i = 0; i < options.length; ++i) {
             if (options[i].value === value) {
                 languageCombo.currentIndex = i
@@ -64,12 +60,12 @@ Rectangle {
                         spacing: 10
 
                         StatusChip {
-                            text: transcriptionService.state.modelStatusText
-                            tone: root.statusTone(transcriptionService.state.modelStatusText)
+                            text: viewModel.state.modelStatusText
+                            tone: root.statusTone(viewModel.state.modelStatusText)
                         }
 
                         Label {
-                            text: transcriptionService.state.modelName + " · " + qsTr("与转录页共享模型")
+                            text: viewModel.state.modelName + " · " + qsTr("与转录页共享模型")
                             color: root.secondaryTextColor
                             Layout.fillWidth: true
                         }
@@ -81,26 +77,20 @@ Rectangle {
 
                         Button {
                             text: qsTr("加载共享模型")
-                            enabled: transcriptionService.state.canLoadModel
-                            onClicked: transcriptionService.load_model()
+                            enabled: viewModel.state.canLoadModel
+                            onClicked: viewModel.load_model()
                         }
 
                         Button {
                             text: qsTr("重载模型")
-                            enabled: transcriptionService.state.canReloadModel
-                            onClicked: transcriptionService.reload_model()
+                            enabled: viewModel.state.canReloadModel
+                            onClicked: viewModel.reload_model()
                         }
 
                         Button {
                             text: qsTr("强制停止")
-                            enabled: alignmentService.state.canCancelTask || transcriptionService.state.canCancelTask
-                            onClicked: {
-                                if (alignmentService.state.canCancelTask) {
-                                    alignmentService.cancel_current_task()
-                                } else {
-                                    transcriptionService.cancel_current_task()
-                                }
-                            }
+                            enabled: viewModel.state.canCancelTask
+                            onClicked: viewModel.cancel_current_task()
                         }
                     }
                 }
@@ -113,19 +103,19 @@ Rectangle {
 
                     StatTile {
                         label: qsTr("当前任务")
-                        value: alignmentService.state.taskStatusText
+                        value: viewModel.state.taskStatusText
                         hint: qsTr("音频与文本准备完成后即可执行对齐")
                     }
 
                     StatTile {
                         label: qsTr("词级数量")
-                        value: String(alignmentService.state.wordCount)
+                        value: String(viewModel.state.wordCount)
                         hint: qsTr("原始对齐时间戳个数")
                     }
 
                     StatTile {
                         label: qsTr("字幕行数")
-                        value: String(alignmentService.state.lineCount)
+                        value: String(viewModel.state.lineCount)
                         hint: qsTr("聚合后的字幕行数量")
                     }
                 }
@@ -144,7 +134,7 @@ Rectangle {
                     subtitle: qsTr("选择音频或视频文件作为对齐源。")
 
                     Label {
-                        text: alignmentService.state.selectedFileName
+                        text: viewModel.state.selectedFileName
                         color: root.textColor
                         font.pixelSize: 15
                         font.weight: Font.Medium
@@ -153,7 +143,7 @@ Rectangle {
                     }
 
                     Label {
-                        text: alignmentService.state.fileSuffix + " · " + alignmentService.state.fileSizeText
+                        text: viewModel.state.fileSuffix + " · " + viewModel.state.fileSizeText
                         color: root.secondaryTextColor
                     }
 
@@ -163,13 +153,13 @@ Rectangle {
                         Button {
                             text: qsTr("选择音频")
                             icon.source: ImagePath.upload
-                            onClicked: alignmentService.pick_input_file()
+                            onClicked: viewModel.pick_input_file()
                         }
 
                         Button {
                             text: qsTr("清空结果")
-                            enabled: alignmentService.state.hasResult
-                            onClicked: alignmentService.clear_result()
+                            enabled: viewModel.state.hasResult
+                            onClicked: viewModel.clear_result()
                         }
                     }
                 }
@@ -183,9 +173,9 @@ Rectangle {
                     ComboBox {
                         id: languageCombo
                         Layout.fillWidth: true
-                        model: alignmentService.language_options
+                        model: viewModel.language_options
                         textRole: "label"
-                        onActivated: alignmentService.update_language(alignmentService.language_options[index].value)
+                        onActivated: viewModel.update_language(viewModel.language_options[index].value)
                         Component.onCompleted: root.syncLanguageSelection()
                     }
 
@@ -196,21 +186,21 @@ Rectangle {
                         Button {
                             text: qsTr("开始对齐")
                             highlighted: true
-                            enabled: alignmentService.state.selectedFilePath !== "" && alignmentService.state.inputText.trim() !== "" && transcriptionService.state.modelReady && !alignmentService.state.isBusy
+                            enabled: viewModel.state.canStartAlignment
                             icon.source: ImagePath.timePicker
-                            onClicked: alignmentService.start_alignment()
+                            onClicked: viewModel.start_alignment()
                         }
 
                         Button {
                             text: qsTr("导出字幕")
-                            enabled: alignmentService.state.canExportSubtitle
-                            onClicked: alignmentService.export_subtitle_with_dialog()
+                            enabled: viewModel.state.canExportSubtitle
+                            onClicked: viewModel.export_subtitle_with_dialog()
                         }
 
                         Button {
                             text: qsTr("强制停止")
-                            enabled: alignmentService.state.canCancelTask
-                            onClicked: alignmentService.cancel_current_task()
+                            enabled: viewModel.state.canCancelTask
+                            onClicked: viewModel.cancel_current_task()
                         }
                     }
 
@@ -220,25 +210,25 @@ Rectangle {
 
                         Button {
                             text: qsTr("复制字幕")
-                            enabled: alignmentService.state.canExportSubtitle
-                            onClicked: alignmentService.copy_subtitle()
+                            enabled: viewModel.state.canExportSubtitle
+                            onClicked: viewModel.copy_subtitle()
                         }
 
                         Button {
                             text: qsTr("复制时间戳")
-                            enabled: alignmentService.state.hasResult
-                            onClicked: alignmentService.copy_raw_timestamps()
+                            enabled: viewModel.state.hasResult
+                            onClicked: viewModel.copy_raw_timestamps()
                         }
 
                         BusyIndicator {
-                            running: alignmentService.state.isBusy
+                            running: viewModel.state.isBusy
                             visible: running
                         }
                     }
 
                     StatusChip {
-                        visible: alignmentService.state.lastError !== ""
-                        text: alignmentService.state.lastError
+                        visible: viewModel.state.lastError !== ""
+                        text: viewModel.state.lastError
                         tone: "danger"
                     }
                 }
@@ -254,9 +244,9 @@ Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 220
                     wrapMode: TextEdit.Wrap
-                    text: alignmentService.state.inputText
+                    text: viewModel.state.inputText
                     placeholderText: qsTr("在这里粘贴待对齐文本。")
-                    onTextChanged: alignmentService.update_input_text(text)
+                    onTextChanged: viewModel.update_input_text(text)
                 }
             }
 
@@ -270,12 +260,12 @@ Rectangle {
                     spacing: 10
 
                     StatusChip {
-                        text: qsTr("音频时长 ") + alignmentService.state.audioDurationText
+                        text: qsTr("音频时长 ") + viewModel.state.audioDurationText
                         tone: "accent"
                     }
 
                     StatusChip {
-                        text: qsTr("词级时间戳 ") + alignmentService.state.wordCount
+                        text: qsTr("词级时间戳 ") + viewModel.state.wordCount
                         tone: "neutral"
                     }
                 }
@@ -285,7 +275,7 @@ Rectangle {
                     Layout.preferredHeight: 180
                     readOnly: true
                     wrapMode: TextEdit.Wrap
-                    text: alignmentService.state.subtitleText !== "" ? alignmentService.state.subtitleText : qsTr("对齐字幕会显示在这里。")
+                    text: viewModel.state.subtitleText !== "" ? viewModel.state.subtitleText : qsTr("对齐字幕会显示在这里。")
                 }
             }
 
@@ -299,14 +289,14 @@ Rectangle {
                     Layout.preferredHeight: 180
                     readOnly: true
                     wrapMode: TextEdit.Wrap
-                    text: alignmentService.state.rawTimestampText !== "" ? alignmentService.state.rawTimestampText : qsTr("执行对齐后，这里会显示原始时间戳。")
+                    text: viewModel.state.rawTimestampText !== "" ? viewModel.state.rawTimestampText : qsTr("执行对齐后，这里会显示原始时间戳。")
                 }
             }
         }
     }
 
     Connections {
-        target: alignmentService
+        target: viewModel
 
         function onStateChanged() {
             root.syncLanguageSelection()

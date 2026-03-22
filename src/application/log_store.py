@@ -1,4 +1,4 @@
-"""日志桥接服务。"""
+"""日志存储。"""
 
 from __future__ import annotations
 
@@ -9,31 +9,11 @@ from loguru import logger
 from PySide6.QtCore import QObject, Property, Signal, Slot
 from PySide6.QtWidgets import QFileDialog
 
-from src.service.service_utils import LOG_FILE_FILTER, normalize_local_path
+from src.application.file_support import LOG_FILE_FILTER, normalize_local_path
 
 
-class LogService(QObject):
-    """将 Loguru 日志桥接到 QML 的服务。
-
-    该服务负责接收来自主线程和后台线程的日志记录，并将其转换为适合 QML
-    绑定的结构化列表。日志页面可以直接消费 `entries` 属性，同时服务也提供
-    清空和导出能力。
-
-    Attributes:
-        entries_changed: 日志列表变化通知。
-
-    Example:
-        基本用法::
-
-            log_service = LogService()
-            log_service.install_sink()
-            logger.info("hello")
-            print(log_service.entries)
-
-    Note:
-        为避免跨线程直接修改 Qt 对象，Loguru sink 先发射内部信号，再由主线程
-        追加日志条目。
-    """
+class LogStore(QObject):
+    """将 Loguru 日志转换为可绑定的日志列表。"""
 
     entries_changed = Signal()
     _queued_entry = Signal(str, str, str, str)
@@ -43,7 +23,7 @@ class LogService(QObject):
         parent: Optional[QObject] = None,
         max_entries: int = 2000,
     ) -> None:
-        """初始化日志服务。"""
+        """初始化日志存储。"""
         super().__init__(parent)
         self._entries: List[Dict[str, str]] = []
         self._max_entries = max_entries

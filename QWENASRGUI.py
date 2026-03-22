@@ -10,51 +10,46 @@ from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuickControls2 import QQuickStyle
 from PySide6.QtWidgets import QApplication
 
+from src.application import CompositionRoot
 from src.core.paths import PROJECT_DIR
 
 
 def main() -> int:
     """启动 GUI 应用。"""
-    from src.service import (
-        AlignmentService,
-        ApplicationService,
-        LogService,
-        SettingsService,
-        TranscriptionService,
-    )
-
     QQuickStyle.setStyle("FluentWinUI3")
 
     app = QApplication(sys.argv)
     app.setApplicationName("QwenASR")
     app.setOrganizationName("QwenASRGUI")
 
-    log_service = LogService()
-    log_service.install_sink()
-
-    application_service = ApplicationService()
-    settings_service = SettingsService()
-    transcription_service = TranscriptionService(application_service, settings_service)
-    alignment_service = AlignmentService(application_service, settings_service)
+    root = CompositionRoot()
+    root.log_store.install_sink()
 
     engine = QQmlApplicationEngine()
     context = engine.rootContext()
-    context.setContextProperty("applicationService", application_service)
-    context.setContextProperty("settingsService", settings_service)
-    context.setContextProperty("logService", log_service)
-    context.setContextProperty("transcriptionService", transcription_service)
-    context.setContextProperty("alignmentService", alignment_service)
+    context.setContextProperty(
+        "transcriptionPageViewModel",
+        root.transcription_view_model,
+    )
+    context.setContextProperty(
+        "alignmentPageViewModel",
+        root.alignment_view_model,
+    )
+    context.setContextProperty("logPageViewModel", root.log_view_model)
+    context.setContextProperty(
+        "settingsPageViewModel",
+        root.settings_view_model,
+    )
 
     qml_path = Path(PROJECT_DIR) / "qml" / "App.qml"
     engine.load(qml_path.as_uri())
 
     if not engine.rootObjects():
-        log_service.shutdown()
+        root.shutdown()
         return 1
 
     logger.info("QwenASR GUI 启动完成")
-    app.aboutToQuit.connect(application_service.shutdown)
-    app.aboutToQuit.connect(log_service.shutdown)
+    app.aboutToQuit.connect(root.shutdown)
     return app.exec()
 
 

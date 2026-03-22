@@ -8,11 +8,7 @@ import "../Component"
 Rectangle {
     id: root
 
-    property var applicationService
-    property var settingsService
-    property var logService
-    property var transcriptionService
-    property var alignmentService
+    required property var viewModel
 
     readonly property bool isDark: Application.styleHints.colorScheme === Qt.ColorScheme.Dark
     readonly property color backgroundColor: isDark ? "#1c1c1c" : "#f6f6f6"
@@ -30,11 +26,11 @@ Rectangle {
     }
 
     function syncFromSettings() {
-        let settings = settingsService.settings
-        root.setComboByValue(modelSizeCombo, settingsService.model_size_options, settings.modelSize)
-        root.setComboByValue(quantizationCombo, settingsService.quantization_options, settings.quantizationMode)
-        root.setComboByValue(deviceCombo, settingsService.device_options, settings.device)
-        root.setComboByValue(breaklineCombo, settingsService.breakline_method_options, settings.gapDetectionMethod)
+        let settings = viewModel.settings
+        root.setComboByValue(modelSizeCombo, viewModel.model_size_options, settings.modelSize)
+        root.setComboByValue(quantizationCombo, viewModel.quantization_options, settings.quantizationMode)
+        root.setComboByValue(deviceCombo, viewModel.device_options, settings.device)
+        root.setComboByValue(breaklineCombo, viewModel.breakline_method_options, settings.gapDetectionMethod)
         segmentSlider.value = settings.segmentDuration
         inferenceDelaySlider.value = settings.inferenceDelay
         maxCharsSlider.value = settings.maxCharsPerLine
@@ -69,20 +65,20 @@ Rectangle {
 
                     StatTile {
                         label: qsTr("共享模型")
-                        value: transcriptionService.state.modelName
-                        hint: transcriptionService.state.modelStatusText
+                        value: viewModel.state.modelName
+                        hint: viewModel.state.modelStatusText
                     }
 
                     StatTile {
                         label: qsTr("系统内存")
-                        value: applicationService.state.hardwareSummary.systemMemoryGb + " GB"
-                        hint: qsTr("CPU 核心数 ") + applicationService.state.hardwareSummary.cpuCores
+                        value: viewModel.state.hardwareSummary.systemMemoryGb + " GB"
+                        hint: qsTr("CPU 核心数 ") + viewModel.state.hardwareSummary.cpuCores
                     }
 
                     StatTile {
                         label: qsTr("GPU")
-                        value: applicationService.state.hardwareSummary.gpuName
-                        hint: applicationService.state.hardwareSummary.hasGpu ? applicationService.state.hardwareSummary.gpuMemoryGb + " GB" : qsTr("未检测到 GPU")
+                        value: viewModel.state.hardwareSummary.gpuName
+                        hint: viewModel.state.hardwareSummary.hasGpu ? viewModel.state.hardwareSummary.gpuMemoryGb + " GB" : qsTr("未检测到 GPU")
                     }
                 }
 
@@ -92,13 +88,13 @@ Rectangle {
 
                     Button {
                         text: qsTr("恢复默认")
-                        onClicked: settingsService.reset_defaults()
+                        onClicked: viewModel.reset_defaults()
                     }
 
                     Button {
                         text: qsTr("重载共享模型")
-                        enabled: transcriptionService.state.canReloadModel
-                        onClicked: transcriptionService.reload_model()
+                        enabled: viewModel.state.canReloadModel
+                        onClicked: viewModel.reload_model()
                     }
                 }
             }
@@ -121,9 +117,9 @@ Rectangle {
                         ComboBox {
                             id: modelSizeCombo
                             Layout.fillWidth: true
-                            model: settingsService.model_size_options
+                            model: viewModel.model_size_options
                             textRole: "label"
-                            onActivated: settingsService.update_setting("modelSize", settingsService.model_size_options[index].value)
+                            onActivated: viewModel.update_setting("modelSize", viewModel.model_size_options[index].value)
                         }
                     }
 
@@ -134,9 +130,9 @@ Rectangle {
                         ComboBox {
                             id: quantizationCombo
                             Layout.fillWidth: true
-                            model: settingsService.quantization_options
+                            model: viewModel.quantization_options
                             textRole: "label"
-                            onActivated: settingsService.update_setting("quantizationMode", settingsService.quantization_options[index].value)
+                            onActivated: viewModel.update_setting("quantizationMode", viewModel.quantization_options[index].value)
                         }
                     }
 
@@ -147,9 +143,9 @@ Rectangle {
                         ComboBox {
                             id: deviceCombo
                             Layout.fillWidth: true
-                            model: settingsService.device_options
+                            model: viewModel.device_options
                             textRole: "label"
-                            onActivated: settingsService.update_setting("device", settingsService.device_options[index].value)
+                            onActivated: viewModel.update_setting("device", viewModel.device_options[index].value)
                         }
                     }
                 }
@@ -175,7 +171,7 @@ Rectangle {
                         from: 5
                         to: 60
                         stepSize: 1
-                        onMoved: settingsService.update_setting("segmentDuration", value)
+                        onMoved: viewModel.update_setting("segmentDuration", value)
                     }
 
                     Label {
@@ -189,13 +185,13 @@ Rectangle {
                         from: 0
                         to: 1
                         stepSize: 0.05
-                        onMoved: settingsService.update_setting("inferenceDelay", value)
+                        onMoved: viewModel.update_setting("inferenceDelay", value)
                     }
 
                     Switch {
                         id: lowPrioritySwitch
                         text: qsTr("启用低优先级模式")
-                        onToggled: settingsService.update_setting("lowPriorityMode", checked)
+                        onToggled: viewModel.update_setting("lowPriorityMode", checked)
                     }
                 }
             }
@@ -212,7 +208,7 @@ Rectangle {
                     Switch {
                         id: enableLimitSwitch
                         text: qsTr("启用资源限制")
-                        onToggled: settingsService.update_setting("enableMemoryLimit", checked)
+                        onToggled: viewModel.update_setting("enableMemoryLimit", checked)
                     }
 
                     Label {
@@ -227,7 +223,7 @@ Rectangle {
                         from: 10
                         to: 100
                         stepSize: 1
-                        onMoved: settingsService.update_setting("systemMemoryPercent", value)
+                        onMoved: viewModel.update_setting("systemMemoryPercent", value)
                     }
 
                     Label {
@@ -242,7 +238,7 @@ Rectangle {
                         from: 10
                         to: 100
                         stepSize: 1
-                        onMoved: settingsService.update_setting("gpuMemoryPercent", value)
+                        onMoved: viewModel.update_setting("gpuMemoryPercent", value)
                     }
                 }
             }
@@ -259,9 +255,9 @@ Rectangle {
                     ComboBox {
                         id: breaklineCombo
                         Layout.fillWidth: true
-                        model: settingsService.breakline_method_options
+                        model: viewModel.breakline_method_options
                         textRole: "label"
-                        onActivated: settingsService.update_setting("gapDetectionMethod", settingsService.breakline_method_options[index].value)
+                        onActivated: viewModel.update_setting("gapDetectionMethod", viewModel.breakline_method_options[index].value)
                     }
 
                     Label {
@@ -275,7 +271,7 @@ Rectangle {
                         from: 6
                         to: 50
                         stepSize: 1
-                        onMoved: settingsService.update_setting("maxCharsPerLine", value)
+                        onMoved: viewModel.update_setting("maxCharsPerLine", value)
                     }
 
                     Label {
@@ -289,7 +285,7 @@ Rectangle {
                         from: 1
                         to: 12
                         stepSize: 0.5
-                        onMoved: settingsService.update_setting("maxDurationPerLine", value)
+                        onMoved: viewModel.update_setting("maxDurationPerLine", value)
                     }
                 }
             }
@@ -299,7 +295,7 @@ Rectangle {
     Component.onCompleted: root.syncFromSettings()
 
     Connections {
-        target: settingsService
+        target: viewModel
 
         function onSettingsChanged() {
             root.syncFromSettings()

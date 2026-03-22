@@ -9,11 +9,7 @@ import "../Global"
 Rectangle {
     id: root
 
-    property var applicationService
-    property var settingsService
-    property var logService
-    property var transcriptionService
-    property var alignmentService
+    required property var viewModel
 
     readonly property bool isDark: Application.styleHints.colorScheme === Qt.ColorScheme.Dark
     readonly property color backgroundColor: isDark ? "#1c1c1c" : "#f6f6f6"
@@ -55,12 +51,12 @@ Rectangle {
                         spacing: 10
 
                         StatusChip {
-                            text: transcriptionService.state.modelStatusText
-                            tone: root.statusTone(transcriptionService.state.modelStatusText)
+                            text: viewModel.state.modelStatusText
+                            tone: root.statusTone(viewModel.state.modelStatusText)
                         }
 
                         Label {
-                            text: transcriptionService.state.modelName + " · " + transcriptionService.state.modelDetails
+                            text: viewModel.state.modelName + " · " + viewModel.state.modelDetails
                             color: root.secondaryTextColor
                             Layout.fillWidth: true
                             elide: Text.ElideRight
@@ -73,36 +69,36 @@ Rectangle {
 
                         Button {
                             text: qsTr("加载模型")
-                            enabled: transcriptionService.state.canLoadModel
-                            onClicked: transcriptionService.load_model()
+                            enabled: viewModel.state.canLoadModel
+                            onClicked: viewModel.load_model()
                         }
 
                         Button {
                             text: qsTr("重载模型")
-                            enabled: transcriptionService.state.canReloadModel
-                            onClicked: transcriptionService.reload_model()
+                            enabled: viewModel.state.canReloadModel
+                            onClicked: viewModel.reload_model()
                         }
 
                         Button {
                             text: qsTr("卸载")
-                            enabled: transcriptionService.state.canUnloadModel
-                            onClicked: transcriptionService.unload_model()
+                            enabled: viewModel.state.canUnloadModel
+                            onClicked: viewModel.unload_model()
                         }
 
                         Button {
                             text: qsTr("强制停止")
-                            enabled: transcriptionService.state.canCancelTask
-                            onClicked: transcriptionService.cancel_current_task()
+                            enabled: viewModel.state.canCancelTask
+                            onClicked: viewModel.cancel_current_task()
                         }
                     }
                 }
 
                 ProgressBar {
-                    visible: transcriptionService.state.isLoadingModel
+                    visible: viewModel.state.isLoadingModel
                     Layout.fillWidth: true
                     from: 0
                     to: 100
-                    value: transcriptionService.state.loadingProgress
+                    value: viewModel.state.loadingProgress
                 }
 
                 GridLayout {
@@ -113,19 +109,19 @@ Rectangle {
 
                     StatTile {
                         label: qsTr("当前任务")
-                        value: transcriptionService.state.taskStatusText
+                        value: viewModel.state.taskStatusText
                         hint: qsTr("共享模型与当前文件的运行状态")
                     }
 
                     StatTile {
                         label: qsTr("字幕行数")
-                        value: String(transcriptionService.state.subtitleLineCount)
+                        value: String(viewModel.state.subtitleLineCount)
                         hint: qsTr("聚合后的字幕条目数量")
                     }
 
                     StatTile {
                         label: qsTr("原始时间戳")
-                        value: String(transcriptionService.state.timestampCount)
+                        value: String(viewModel.state.timestampCount)
                         hint: qsTr("词级时间戳数量")
                     }
                 }
@@ -155,7 +151,7 @@ Rectangle {
 
                             onDropped: function(drop) {
                                 if (drop.hasUrls && drop.urls.length > 0) {
-                                    transcriptionService.set_selected_file(drop.urls[0].toString())
+                                    viewModel.set_selected_file(drop.urls[0].toString())
                                 }
                             }
                         }
@@ -204,7 +200,7 @@ Rectangle {
                             spacing: 4
 
                             Label {
-                                text: transcriptionService.state.selectedFileName
+                                text: viewModel.state.selectedFileName
                                 color: root.textColor
                                 font.pixelSize: 15
                                 font.weight: Font.Medium
@@ -213,7 +209,7 @@ Rectangle {
                             }
 
                             Label {
-                                text: transcriptionService.state.fileSuffix + " · " + transcriptionService.state.fileSizeText
+                                text: viewModel.state.fileSuffix + " · " + viewModel.state.fileSizeText
                                 color: root.secondaryTextColor
                             }
                         }
@@ -221,13 +217,13 @@ Rectangle {
                         Button {
                             text: qsTr("选择文件")
                             icon.source: ImagePath.upload
-                            onClicked: transcriptionService.pick_input_file()
+                            onClicked: viewModel.pick_input_file()
                         }
 
                         Button {
                             text: qsTr("清除")
-                            enabled: transcriptionService.state.selectedFilePath !== ""
-                            onClicked: transcriptionService.clear_selected_file()
+                            enabled: viewModel.state.selectedFilePath !== ""
+                            onClicked: viewModel.clear_selected_file()
                         }
                     }
                 }
@@ -244,27 +240,27 @@ Rectangle {
                         Button {
                             text: qsTr("开始转录")
                             highlighted: true
-                            enabled: transcriptionService.state.canStartTranscription
+                            enabled: viewModel.state.canStartTranscription
                             icon.source: ImagePath.play
-                            onClicked: transcriptionService.start_transcription()
+                            onClicked: viewModel.start_transcription()
                         }
 
                         Button {
                             text: qsTr("导出文本")
-                            enabled: transcriptionService.state.canExportTranscript
-                            onClicked: transcriptionService.export_transcript_with_dialog()
+                            enabled: viewModel.state.canExportTranscript
+                            onClicked: viewModel.export_transcript_with_dialog()
                         }
 
                         Button {
                             text: qsTr("导出字幕")
-                            enabled: transcriptionService.state.canExportSubtitle
-                            onClicked: transcriptionService.export_subtitle_with_dialog()
+                            enabled: viewModel.state.canExportSubtitle
+                            onClicked: viewModel.export_subtitle_with_dialog()
                         }
 
                         Button {
                             text: qsTr("强制停止")
-                            enabled: transcriptionService.state.canCancelTask
-                            onClicked: transcriptionService.cancel_current_task()
+                            enabled: viewModel.state.canCancelTask
+                            onClicked: viewModel.cancel_current_task()
                         }
                     }
 
@@ -274,25 +270,25 @@ Rectangle {
 
                         Button {
                             text: qsTr("复制全文")
-                            enabled: transcriptionService.state.canExportTranscript
-                            onClicked: transcriptionService.copy_transcript()
+                            enabled: viewModel.state.canExportTranscript
+                            onClicked: viewModel.copy_transcript()
                         }
 
                         Button {
                             text: qsTr("复制字幕")
-                            enabled: transcriptionService.state.canExportSubtitle
-                            onClicked: transcriptionService.copy_subtitle()
+                            enabled: viewModel.state.canExportSubtitle
+                            onClicked: viewModel.copy_subtitle()
                         }
 
                         BusyIndicator {
-                            running: transcriptionService.state.isBusy
+                            running: viewModel.state.isBusy
                             visible: running
                         }
                     }
 
                     StatusChip {
-                        visible: transcriptionService.state.lastError !== ""
-                        text: transcriptionService.state.lastError
+                        visible: viewModel.state.lastError !== ""
+                        text: viewModel.state.lastError
                         tone: "danger"
                     }
                 }
@@ -308,12 +304,12 @@ Rectangle {
                     spacing: 10
 
                     StatusChip {
-                        text: qsTr("语言 ") + transcriptionService.state.language
+                        text: qsTr("语言 ") + viewModel.state.language
                         tone: "accent"
                     }
 
                     StatusChip {
-                        text: qsTr("时长 ") + transcriptionService.state.durationText
+                        text: qsTr("时长 ") + viewModel.state.durationText
                         tone: "neutral"
                     }
                 }
@@ -323,7 +319,7 @@ Rectangle {
                     Layout.preferredHeight: 260
                     readOnly: true
                     wrapMode: TextEdit.Wrap
-                    text: transcriptionService.state.transcriptText !== "" ? transcriptionService.state.transcriptText : qsTr("转录结果会显示在这里。")
+                    text: viewModel.state.transcriptText !== "" ? viewModel.state.transcriptText : qsTr("转录结果会显示在这里。")
                 }
             }
 
@@ -337,7 +333,7 @@ Rectangle {
                     spacing: 8
 
                     Repeater {
-                        model: transcriptionService.timeline_items
+                        model: viewModel.timeline_items
 
                         delegate: Rectangle {
                             required property var modelData
@@ -385,7 +381,7 @@ Rectangle {
                     }
 
                     Label {
-                        visible: transcriptionService.timeline_items.length === 0
+                        visible: viewModel.timeline_items.length === 0
                         text: qsTr("暂无字幕时间线。加载模型并完成一次转录后，这里会显示聚合字幕。")
                         color: root.secondaryTextColor
                         wrapMode: Text.WordWrap

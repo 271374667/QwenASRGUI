@@ -1,4 +1,4 @@
-"""GUI 服务层辅助函数。"""
+"""ViewModel 使用的文件与展示辅助函数。"""
 
 from __future__ import annotations
 

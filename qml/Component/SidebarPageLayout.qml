@@ -10,7 +10,6 @@ Item {
     id: root
 
     required property var pages
-    property var pageContext: ({})
     readonly property int navVerticalMargin: 8
 
     readonly property bool isDark: Application.styleHints.colorScheme === Qt.ColorScheme.Dark
@@ -53,7 +52,8 @@ Item {
                     "index": i,
                     "name": page.name,
                     "iconSource": page.iconSource,
-                    "qmlPath": page.qmlPath
+                    "qmlPath": page.qmlPath,
+                    "pageProps": page.pageProps ? page.pageProps : ({})
                 })
             }
         }
@@ -94,23 +94,23 @@ Item {
         return root.buttonRegistry[index] ? root.buttonRegistry[index] : null
     }
 
-    function createPageObject(qmlPath) {
-        let component = Qt.createComponent(qmlPath)
+    function createPageObject(page) {
+        let component = Qt.createComponent(page.qmlPath)
 
         if (component.status === Component.Error) {
-            console.error("Failed to load page:", qmlPath, component.errorString())
+            console.error("Failed to load page:", page.qmlPath, component.errorString())
             return null
         }
 
-        return component.createObject(stackView, root.pageContext)
+        return component.createObject(stackView, page.pageProps ? page.pageProps : {})
     }
 
-    function navigateTo(index, qmlPath) {
+    function navigateTo(index) {
         if (!root.pages || index < 0 || index >= root.pages.length || root.currentIndex === index) {
             return
         }
 
-        let pageObject = createPageObject(qmlPath)
+        let pageObject = createPageObject(root.pages[index])
         if (!pageObject) {
             return
         }
@@ -130,7 +130,7 @@ Item {
         }
 
         if (stackView.depth === 0) {
-            let pageObject = createPageObject(root.pages[root.currentIndex].qmlPath)
+            let pageObject = createPageObject(root.pages[root.currentIndex])
             if (pageObject) {
                 stackView.push(pageObject, {}, Controls.StackView.Immediate)
             }
@@ -209,7 +209,7 @@ Item {
                             pageName: modelData.name
                             iconSource: modelData.iconSource
 
-                            onClicked: root.navigateTo(modelData.index, modelData.qmlPath)
+                            onClicked: root.navigateTo(modelData.index)
 
                             Component.onCompleted: root.registerButton(modelData.index, this)
                             Component.onDestruction: root.unregisterButton(modelData.index, this)
@@ -230,7 +230,7 @@ Item {
                             pageName: modelData.name
                             iconSource: modelData.iconSource
 
-                            onClicked: root.navigateTo(modelData.index, modelData.qmlPath)
+                            onClicked: root.navigateTo(modelData.index)
 
                             Component.onCompleted: root.registerButton(modelData.index, this)
                             Component.onDestruction: root.unregisterButton(modelData.index, this)

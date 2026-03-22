@@ -1,4 +1,4 @@
-"""应用级共享状态服务。"""
+"""应用级共享状态。"""
 
 from __future__ import annotations
 
@@ -10,32 +10,17 @@ from PySide6.QtGui import QGuiApplication
 from qthreadwithreturn import QThreadWithReturn
 
 
-class ApplicationService(QObject):
-    """应用级共享状态与互斥操作服务。
-
-    该服务负责维护 GUI 的全局共享状态，例如当前是否有后台任务在运行、
-    当前执行中的操作名称、应用版本信息以及本机硬件摘要。页面服务通过它
-    进行“单任务占用”控制，避免模型加载、转录与对齐任务同时运行。
+class ApplicationState(QObject):
+    """维护应用级共享状态与全局互斥操作。
 
     Attributes:
         state_changed: 全局状态变化通知。
-
-    Example:
-        基本用法::
-
-            app_service = ApplicationService()
-            if app_service.begin_operation("加载模型"):
-                ...
-                app_service.finish_operation()
-
-    Note:
-        该服务本身不执行耗时任务，只负责协调与共享元数据。
     """
 
     state_changed = Signal()
 
     def __init__(self, parent: Optional[QObject] = None) -> None:
-        """初始化应用服务。"""
+        """初始化应用共享状态。"""
         super().__init__(parent)
         self._hardware_thread: Optional[QThreadWithReturn] = None
         self._state: Dict[str, Any] = {
@@ -56,7 +41,7 @@ class ApplicationService(QObject):
 
     @Property("QVariantMap", notify=state_changed)
     def state(self) -> Dict[str, Any]:
-        """返回供 QML 绑定的应用状态字典。"""
+        """返回供 ViewModel 读取的应用状态。"""
         return dict(self._state)
 
     def begin_operation(self, operation_name: str) -> bool:

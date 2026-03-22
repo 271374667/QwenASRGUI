@@ -33,33 +33,30 @@ ApplicationWindow {
         id: pageLayout
         anchors.fill: parent
         anchors.topMargin: titleBar.barHeight
-        pageContext: ({
-            "applicationService": applicationService,
-            "settingsService": settingsService,
-            "logService": logService,
-            "transcriptionService": transcriptionService,
-            "alignmentService": alignmentService
-        })
         pages: [
             {
                 "name": qsTr("转录"),
                 "iconSource": ImagePath.mic,
-                "qmlPath": Qt.resolvedUrl("Page/Transcription.qml")
+                "qmlPath": Qt.resolvedUrl("Page/Transcription.qml"),
+                "pageProps": ({ "viewModel": transcriptionPageViewModel })
             },
             {
                 "name": qsTr("对齐"),
                 "iconSource": ImagePath.timePicker,
-                "qmlPath": Qt.resolvedUrl("Page/Align.qml")
+                "qmlPath": Qt.resolvedUrl("Page/Align.qml"),
+                "pageProps": ({ "viewModel": alignmentPageViewModel })
             },
             {
                 "name": qsTr("日志"),
                 "iconSource": ImagePath.log,
-                "qmlPath": Qt.resolvedUrl("Page/Log.qml")
+                "qmlPath": Qt.resolvedUrl("Page/Log.qml"),
+                "pageProps": ({ "viewModel": logPageViewModel })
             },
             {
                 "name": qsTr("设置"),
                 "iconSource": ImagePath.settings,
                 "qmlPath": Qt.resolvedUrl("Page/Settings.qml"),
+                "pageProps": ({ "viewModel": settingsPageViewModel }),
                 "section": "bottom"
             }
         ]
