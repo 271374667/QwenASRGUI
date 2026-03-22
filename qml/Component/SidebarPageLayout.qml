@@ -10,6 +10,7 @@ Item {
     id: root
 
     required property var pages
+    readonly property int navVerticalMargin: 8
 
     readonly property bool isDark: Application.styleHints.colorScheme === Qt.ColorScheme.Dark
     readonly property color accentColor: palette.accent
@@ -27,6 +28,13 @@ Item {
     property int previousIndex: 0
     property var buttonRegistry: ({})
     property int buttonRegistryVersion: 0
+    readonly property var currentNavButton: {
+        root.buttonRegistryVersion
+        return root.getNavButton(root.currentIndex)
+    }
+    readonly property real currentNavButtonY: root.currentNavButton
+        ? navColumn.y + root.currentNavButton.y
+        : root.navVerticalMargin
 
     function normalizedPages(section) {
         let result = []
@@ -135,17 +143,7 @@ Item {
                     x: (sideBar.width - width) / 2
                     z: 0
 
-                    y: {
-                        root.buttonRegistryVersion
-
-                        let targetButton = root.getNavButton(root.currentIndex)
-
-                        if (targetButton) {
-                            return targetButton.mapToItem(sideBar, 0, 0).y
-                        }
-
-                        return 8
-                    }
+                    y: root.currentNavButtonY
 
                     Behavior on y {
                         NumberAnimation {
@@ -156,9 +154,10 @@ Item {
                 }
 
                 ColumnLayout {
+                    id: navColumn
                     anchors.fill: parent
-                    anchors.topMargin: 8
-                    anchors.bottomMargin: 8
+                    anchors.topMargin: root.navVerticalMargin
+                    anchors.bottomMargin: root.navVerticalMargin
                     spacing: 4
                     z: 1
 
@@ -210,17 +209,9 @@ Item {
                     x: 4
                     z: 2
 
-                    y: {
-                        root.buttonRegistryVersion
-
-                        let targetButton = root.getNavButton(root.currentIndex)
-
-                        if (targetButton) {
-                            return targetButton.mapToItem(sideBar, 0, 0).y + (targetButton.height - height) / 2
-                        }
-
-                        return 20
-                    }
+                    y: root.currentNavButton
+                        ? root.currentNavButtonY + (root.currentNavButton.height - height) / 2
+                        : root.navVerticalMargin + 12
 
                     Behavior on y {
                         NumberAnimation {
