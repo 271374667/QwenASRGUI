@@ -13,4 +13,8 @@ QtObject {
     readonly property url timePicker: Qt.resolvedUrl("../Images/TimePicker.svg")
     readonly property url upload: Qt.resolvedUrl("../Images/Upload.svg")
     readonly property url question: Qt.resolvedUrl("../Images/Question.svg")
+    readonly property url windowClose: Qt.resolvedUrl("../Images/WindowClose.svg")
+    readonly property url windowMaximize: Qt.resolvedUrl("../Images/WindowMaximize.svg")
+    readonly property url windowMinimize: Qt.resolvedUrl("../Images/WindowMinimize.svg")
+    readonly property url windowRestore: Qt.resolvedUrl("../Images/WindowRestore.svg")
 }

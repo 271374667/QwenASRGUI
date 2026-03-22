@@ -10,6 +10,7 @@ Item {
     id: root
 
     required property var pages
+    property var pageContext: ({})
     readonly property int navVerticalMargin: 8
 
     readonly property bool isDark: Application.styleHints.colorScheme === Qt.ColorScheme.Dark
@@ -93,14 +94,30 @@ Item {
         return root.buttonRegistry[index] ? root.buttonRegistry[index] : null
     }
 
+    function createPageObject(qmlPath) {
+        let component = Qt.createComponent(qmlPath)
+
+        if (component.status === Component.Error) {
+            console.error("Failed to load page:", qmlPath, component.errorString())
+            return null
+        }
+
+        return component.createObject(stackView, root.pageContext)
+    }
+
     function navigateTo(index, qmlPath) {
         if (!root.pages || index < 0 || index >= root.pages.length || root.currentIndex === index) {
             return
         }
 
+        let pageObject = createPageObject(qmlPath)
+        if (!pageObject) {
+            return
+        }
+
         root.previousIndex = root.currentIndex
         root.currentIndex = index
-        stackView.replace(null, qmlPath)
+        stackView.replace(null, pageObject)
     }
 
     function ensureCurrentPageLoaded() {
@@ -113,7 +130,10 @@ Item {
         }
 
         if (stackView.depth === 0) {
-            stackView.push(root.pages[root.currentIndex].qmlPath, {}, Controls.StackView.Immediate)
+            let pageObject = createPageObject(root.pages[root.currentIndex].qmlPath)
+            if (pageObject) {
+                stackView.push(pageObject, {}, Controls.StackView.Immediate)
+            }
         }
     }
 

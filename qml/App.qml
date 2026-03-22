@@ -22,10 +22,10 @@ ApplicationWindow {
         window: window
         logoSource: ImagePath.logo
         appName: window.title
-        minimizeIconSource: Qt.resolvedUrl("Images/WindowMinimize.svg")
-        maximizeIconSource: Qt.resolvedUrl("Images/WindowMaximize.svg")
-        restoreIconSource: Qt.resolvedUrl("Images/WindowRestore.svg")
-        closeIconSource: Qt.resolvedUrl("Images/WindowClose.svg")
+        minimizeIconSource: ImagePath.windowMinimize
+        maximizeIconSource: ImagePath.windowMaximize
+        restoreIconSource: ImagePath.windowRestore
+        closeIconSource: ImagePath.windowClose
         z: 20
     }
 
@@ -33,6 +33,13 @@ ApplicationWindow {
         id: pageLayout
         anchors.fill: parent
         anchors.topMargin: titleBar.barHeight
+        pageContext: ({
+            "applicationService": applicationService,
+            "settingsService": settingsService,
+            "logService": logService,
+            "transcriptionService": transcriptionService,
+            "alignmentService": alignmentService
+        })
         pages: [
             {
                 "name": qsTr("转录"),

@@ -5,7 +5,7 @@ ASR 模块
 模块结构:
 - model_holder: 模型容器单例，管理模型生命周期
 - interface: ASR 接口，提供转录和对齐功能
-- service: ASR 服务单例，提供 Qt 集成和异步支持
+- service: ASR 服务单例，提供 Qt 集成和同步服务支持
 
 使用示例::
 
@@ -14,8 +14,8 @@ ASR 模块
 
     service = ASRService()
     service.signals.loading_finished.connect(on_loaded)
-    await service.load_model_async()
-    result = await service.transcribe_async("audio.wav")
+    service.load_model()
+    result = service.transcribe("audio.wav")
 
     # 方式 2: 使用分离的 ModelHolder 和 Interface（适合非 Qt 场景）
     from src.common.asr import ASRModelHolder, ASRInterface

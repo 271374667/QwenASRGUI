@@ -1,15 +1,13 @@
 """
 ASR Service Module
-服务层单例，提供 Qt 信号槽支持和异步加载功能
+服务层单例，提供 Qt 信号槽支持
 
 职责:
 - 封装 ASRModelHolder 和 ASRInterface
 - 提供 Qt 信号槽（模型加载进度、状态变更通知）
-- 支持 qasync 异步加载
-- 提供简化的 API
+- 提供简化的同步 API
 """
 
-import asyncio
 from typing import List, Optional, Union
 
 from loguru import logger
@@ -65,27 +63,20 @@ class ASRService(QObject):
     """
     ASR 服务单例
 
-    提供 Qt 信号槽支持和异步加载功能，封装 ASRModelHolder 和 ASRInterface。
+    提供 Qt 信号槽支持，封装 ASRModelHolder 和 ASRInterface。
 
     特性:
     - Qt 信号槽：status_changed, loading_progress, loading_finished 等
-    - qasync 异步支持：load_model_async(), transcribe_async() 等
+    - 同步调用：load_model(), transcribe(), align() 等
     - 简化的 API：无需手动管理 ModelHolder 和 Interface
 
     使用示例::
 
-        # 同步方式
         service = ASRService()
         service.signals.loading_finished.connect(on_loaded)
         service.load_model()
 
         result = service.transcribe("audio.wav")
-
-        # 异步方式（需要 qasync 事件循环）
-        async def main():
-            service = ASRService()
-            await service.load_model_async()
-            result = await service.transcribe_async("audio.wav")
     """
 
     def __init__(self, parent: Optional[QObject] = None):
@@ -275,121 +266,6 @@ class ASRService(QObject):
             self._signals.align_finished.emit(None, error_msg)
             self._signals.error_occurred.emit(error_msg)
             return None
-
-    # ==================== 异步方法（使用 qasync）====================
-
-    async def load_model_async(self, config: Optional[ModelConfig] = None) -> bool:
-        """
-        异步加载模型（需要 qasync 事件循环）
-
-        Args:
-            config: 可选的模型配置
-
-        Returns:
-            是否加载成功
-        """
-        loop = asyncio.get_event_loop()
-
-        def _load():
-            return self.load_model(config)
-
-        return await loop.run_in_executor(None, _load)
-
-    async def unload_model_async(self) -> None:
-        """异步卸载模型"""
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, self.unload_model)
-
-    async def reload_model_async(
-        self, config: Optional[ModelConfig] = None
-    ) -> bool:
-        """
-        异步重新加载模型
-
-        Args:
-            config: 可选的新配置
-
-        Returns:
-            是否加载成功
-        """
-        loop = asyncio.get_event_loop()
-
-        def _reload():
-            return self.reload_model(config)
-
-        return await loop.run_in_executor(None, _reload)
-
-    async def transcribe_async(
-        self,
-        audio_input: Union[str, AudioData],
-        return_time_stamps: bool = True,
-    ) -> Optional[TranscriptionResult]:
-        """
-        异步转录音频
-
-        Args:
-            audio_input: 音频文件路径或 AudioData 对象
-            return_time_stamps: 是否返回时间戳
-
-        Returns:
-            转录结果，失败时返回 None
-        """
-        loop = asyncio.get_event_loop()
-
-        def _transcribe():
-            return self.transcribe(audio_input, return_time_stamps, show_progress=False)
-
-        return await loop.run_in_executor(None, _transcribe)
-
-    async def transcribe_batch_async(
-        self,
-        audio_paths: List[str],
-        return_time_stamps: bool = True,
-    ) -> List[TranscriptionResult]:
-        """
-        异步批量转录
-
-        Args:
-            audio_paths: 音频文件路径列表
-            return_time_stamps: 是否返回时间戳
-
-        Returns:
-            转录结果列表
-        """
-        results = []
-        total = len(audio_paths)
-
-        for i, audio_path in enumerate(audio_paths):
-            result = await self.transcribe_async(audio_path, return_time_stamps)
-            if result is not None:
-                results.append(result)
-            self._signals.transcribe_progress.emit(i + 1, total)
-
-        return results
-
-    async def align_async(
-        self,
-        audio_input: Union[str, AudioData],
-        text: str,
-        language: Union[Language, List[Language]] = Language.CHINESE,
-    ) -> Optional[AlignmentResult]:
-        """
-        异步对齐音频和文本
-
-        Args:
-            audio_input: 音频文件路径或 AudioData 对象
-            text: 需要对齐的文本
-            language: 语言类型
-
-        Returns:
-            对齐结果，失败时返回 None
-        """
-        loop = asyncio.get_event_loop()
-
-        def _align():
-            return self.align(audio_input, text, language)
-
-        return await loop.run_in_executor(None, _align)
 
     # ==================== 辅助方法 ====================
 
