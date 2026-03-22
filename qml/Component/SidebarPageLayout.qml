@@ -103,6 +103,20 @@ Item {
         stackView.replace(null, qmlPath)
     }
 
+    function ensureCurrentPageLoaded() {
+        if (!root.pages || root.pages.length === 0) {
+            return
+        }
+
+        if (root.currentIndex < 0 || root.currentIndex >= root.pages.length) {
+            return
+        }
+
+        if (stackView.depth === 0) {
+            stackView.push(root.pages[root.currentIndex].qmlPath, {}, Controls.StackView.Immediate)
+        }
+    }
+
     onPagesChanged: {
         if (!root.pages || root.pages.length === 0) {
             root.currentIndex = -1
@@ -114,7 +128,11 @@ Item {
             root.currentIndex = 0
             root.previousIndex = 0
         }
+
+        root.ensureCurrentPageLoaded()
     }
+
+    Component.onCompleted: root.ensureCurrentPageLoaded()
 
     RowLayout {
         anchors.fill: parent
@@ -234,7 +252,6 @@ Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
-            initialItem: root.pages && root.pages.length > 0 ? root.pages[0].qmlPath : null
 
             replaceEnter: Transition {
                 ParallelAnimation {
