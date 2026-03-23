@@ -50,6 +50,7 @@ Item {
             if (pageSection === section) {
                 result.push({
                     "index": i,
+                    "key": page.key ? page.key : "",
                     "name": page.name,
                     "iconSource": page.iconSource,
                     "qmlPath": page.qmlPath,
@@ -105,6 +106,20 @@ Item {
         return component.createObject(stackView, page.pageProps ? page.pageProps : {})
     }
 
+    function findPageIndex(pageKey) {
+        if (!root.pages || !pageKey) {
+            return -1
+        }
+
+        for (let i = 0; i < root.pages.length; ++i) {
+            if (root.pages[i].key === pageKey) {
+                return i
+            }
+        }
+
+        return -1
+    }
+
     function navigateTo(index) {
         if (!root.pages || index < 0 || index >= root.pages.length || root.currentIndex === index) {
             return
@@ -118,6 +133,13 @@ Item {
         root.previousIndex = root.currentIndex
         root.currentIndex = index
         stackView.replace(null, pageObject)
+    }
+
+    function navigateToPage(pageKey) {
+        let targetIndex = root.findPageIndex(pageKey)
+        if (targetIndex >= 0) {
+            root.navigateTo(targetIndex)
+        }
     }
 
     function ensureCurrentPageLoaded() {

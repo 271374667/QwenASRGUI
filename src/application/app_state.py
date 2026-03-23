@@ -6,7 +6,6 @@ from importlib import metadata
 from typing import Any, Dict, Optional
 
 from PySide6.QtCore import QObject, Property, QTimer, Signal, Slot
-from PySide6.QtGui import QGuiApplication
 from qthreadwithreturn import QThreadWithReturn
 
 
@@ -63,19 +62,11 @@ class ApplicationState(QObject):
         self._state["currentOperation"] = ""
         self.state_changed.emit()
 
-    @Slot(str, result=bool)
-    def copy_text(self, text: str) -> bool:
-        """复制文本到系统剪贴板。"""
-        if not text:
-            return False
-
-        clipboard = QGuiApplication.clipboard()
-        clipboard.setText(text)
-        return True
-
     @Slot()
     def request_quit(self) -> None:
         """请求退出应用。"""
+        from PySide6.QtGui import QGuiApplication
+
         app = QGuiApplication.instance()
         if app is not None:
             app.quit()

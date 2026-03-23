@@ -10,6 +10,7 @@ Rectangle {
     id: root
 
     required property var viewModel
+    property var navigationHost: null
 
     readonly property bool isDark: Application.styleHints.colorScheme === Qt.ColorScheme.Dark
     readonly property color backgroundColor: isDark ? "#1c1c1c" : "#f6f6f6"
@@ -39,12 +40,12 @@ Rectangle {
 
             SurfaceCard {
                 Layout.fillWidth: true
-                title: qsTr("语音转录")
-                subtitle: qsTr("共享模型加载后，可将音频或视频文件转为全文文本与 SRT 字幕。")
+                title: qsTr("开始转录")
+                subtitle: qsTr("先选择媒体文件再直接开始，模型未就绪时会按需提示加载并继续。")
 
                 ColumnLayout {
                     Layout.fillWidth: true
-                    spacing: 12
+                    spacing: 14
 
                     RowLayout {
                         Layout.fillWidth: true
@@ -55,12 +56,36 @@ Rectangle {
                             tone: root.statusTone(viewModel.state.modelStatusText)
                         }
 
-                        Label {
-                            text: viewModel.state.modelName + " · " + viewModel.state.modelDetails
-                            color: root.secondaryTextColor
-                            Layout.fillWidth: true
-                            elide: Text.ElideRight
+                        StatusChip {
+                            text: viewModel.state.selectedFilePath !== ""
+                                ? qsTr("文件已就绪")
+                                : qsTr("等待选择文件")
+                            tone: viewModel.state.selectedFilePath !== "" ? "accent" : "neutral"
                         }
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: viewModel.state.modelReady
+                                ? viewModel.state.modelName + " · " + viewModel.state.modelDetails
+                                : qsTr("模型管理已移至设置页，开始转录时也会自动提示加载。")
+                            color: root.secondaryTextColor
+                            wrapMode: Text.WordWrap
+                        }
+
+                        BusyIndicator {
+                            running: viewModel.state.isBusy
+                            visible: running
+                        }
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: viewModel.state.selectedFilePath !== ""
+                            ? viewModel.state.selectedFileName + " · " + viewModel.state.fileSuffix + " · " + viewModel.state.fileSizeText
+                            : qsTr("支持 MP3、WAV、FLAC、MP4、MKV、AVI 等格式。")
+                        color: root.textColor
+                        wrapMode: Text.WordWrap
+                        elide: Text.ElideMiddle
                     }
 
                     Flow {
@@ -68,21 +93,35 @@ Rectangle {
                         spacing: 10
 
                         Button {
-                            text: qsTr("加载模型")
-                            enabled: viewModel.state.canLoadModel
-                            onClicked: viewModel.load_model()
+                            text: qsTr("选择文件")
+                            icon.source: ImagePath.upload
+                            onClicked: viewModel.pick_input_file()
                         }
 
                         Button {
-                            text: qsTr("重载模型")
-                            enabled: viewModel.state.canReloadModel
-                            onClicked: viewModel.reload_model()
+                            text: qsTr("开始转录")
+                            highlighted: true
+                            enabled: viewModel.state.canStartTranscription
+                            icon.source: ImagePath.play
+                            onClicked: {
+                                if (!viewModel.state.modelReady) {
+                                    modelLoadPrompt.openPrompt()
+                                    return
+                                }
+                                viewModel.start_transcription()
+                            }
                         }
 
                         Button {
-                            text: qsTr("卸载")
-                            enabled: viewModel.state.canUnloadModel
-                            onClicked: viewModel.unload_model()
+                            text: qsTr("导出文本")
+                            enabled: viewModel.state.canExportTranscript
+                            onClicked: viewModel.export_transcript_with_dialog()
+                        }
+
+                        Button {
+                            text: qsTr("导出字幕")
+                            enabled: viewModel.state.canExportSubtitle
+                            onClicked: viewModel.export_subtitle_with_dialog()
                         }
 
                         Button {
@@ -91,14 +130,20 @@ Rectangle {
                             onClicked: viewModel.cancel_current_task()
                         }
                     }
-                }
 
-                ProgressBar {
-                    visible: viewModel.state.isLoadingModel
-                    Layout.fillWidth: true
-                    from: 0
-                    to: 100
-                    value: viewModel.state.loadingProgress
+                    ProgressBar {
+                        visible: viewModel.state.isLoadingModel
+                        Layout.fillWidth: true
+                        from: 0
+                        to: 100
+                        value: viewModel.state.loadingProgress
+                    }
+
+                    StatusChip {
+                        visible: viewModel.state.lastError !== ""
+                        text: viewModel.state.lastError
+                        tone: "danger"
+                    }
                 }
 
                 GridLayout {
@@ -127,169 +172,99 @@ Rectangle {
                 }
             }
 
-            ColumnLayout {
+            SurfaceCard {
                 Layout.fillWidth: true
-                spacing: 24
+                title: qsTr("输入文件")
+                subtitle: qsTr("支持拖放和文件对话框选择。")
 
-                SurfaceCard {
+                Rectangle {
                     Layout.fillWidth: true
-                    title: qsTr("输入文件")
-                    subtitle: qsTr("支持拖放和文件对话框选择。")
+                    Layout.preferredHeight: 240
+                    radius: 16
+                    color: dropArea.containsDrag ? Qt.darker(root.dropColor, 1.04) : root.dropColor
+                    border.width: 1
+                    border.color: dropArea.containsDrag ? root.accentColor : root.dropBorderColor
 
-                    Rectangle {
-                        id: dropZone
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 240
-                        radius: 16
-                        color: dropArea.containsDrag ? Qt.darker(root.dropColor, 1.04) : root.dropColor
-                        border.width: 1
-                        border.color: dropArea.containsDrag ? root.accentColor : root.dropBorderColor
+                    DropArea {
+                        id: dropArea
+                        anchors.fill: parent
 
-                        DropArea {
-                            id: dropArea
-                            anchors.fill: parent
-
-                            onDropped: function(drop) {
-                                if (drop.hasUrls && drop.urls.length > 0) {
-                                    viewModel.set_selected_file(drop.urls[0].toString())
-                                }
-                            }
-                        }
-
-                        ColumnLayout {
-                            anchors.centerIn: parent
-                            spacing: 12
-
-                            Rectangle {
-                                Layout.alignment: Qt.AlignHCenter
-                                width: 56
-                                height: 56
-                                radius: 28
-                                color: root.isDark ? "#313131" : "#ececec"
-
-                                Image {
-                                    anchors.centerIn: parent
-                                    source: ImagePath.upload
-                                    width: 28
-                                    height: 28
-                                    fillMode: Image.PreserveAspectFit
-                                }
-                            }
-
-                            Label {
-                                Layout.alignment: Qt.AlignHCenter
-                                text: qsTr("拖放音频或视频文件到这里")
-                                color: root.textColor
-                                font.pixelSize: 16
-                                font.weight: Font.Medium
-                            }
-
-                            Label {
-                                Layout.alignment: Qt.AlignHCenter
-                                text: qsTr("支持 MP3、WAV、FLAC、MP4、MKV、AVI 等格式")
-                                color: root.secondaryTextColor
+                        onDropped: function(drop) {
+                            if (drop.hasUrls && drop.urls.length > 0) {
+                                viewModel.set_selected_file(drop.urls[0].toString())
                             }
                         }
                     }
 
-                    RowLayout {
-                        Layout.fillWidth: true
+                    ColumnLayout {
+                        anchors.centerIn: parent
+                        spacing: 12
 
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: 4
+                        Rectangle {
+                            Layout.alignment: Qt.AlignHCenter
+                            width: 56
+                            height: 56
+                            radius: 28
+                            color: root.isDark ? "#313131" : "#ececec"
 
-                            Label {
-                                text: viewModel.state.selectedFileName
-                                color: root.textColor
-                                font.pixelSize: 15
-                                font.weight: Font.Medium
-                                Layout.fillWidth: true
-                                elide: Text.ElideMiddle
-                            }
-
-                            Label {
-                                text: viewModel.state.fileSuffix + " · " + viewModel.state.fileSizeText
-                                color: root.secondaryTextColor
+                            Image {
+                                anchors.centerIn: parent
+                                source: ImagePath.upload
+                                width: 28
+                                height: 28
+                                fillMode: Image.PreserveAspectFit
                             }
                         }
 
-                        Button {
-                            text: qsTr("选择文件")
-                            icon.source: ImagePath.upload
-                            onClicked: viewModel.pick_input_file()
+                        Label {
+                            Layout.alignment: Qt.AlignHCenter
+                            text: qsTr("拖放音频或视频文件到这里")
+                            color: root.textColor
+                            font.pixelSize: 16
+                            font.weight: Font.Medium
                         }
 
-                        Button {
-                            text: qsTr("清除")
-                            enabled: viewModel.state.selectedFilePath !== ""
-                            onClicked: viewModel.clear_selected_file()
+                        Label {
+                            Layout.alignment: Qt.AlignHCenter
+                            text: qsTr("支持 MP3、WAV、FLAC、MP4、MKV、AVI 等格式")
+                            color: root.secondaryTextColor
                         }
                     }
                 }
 
-                SurfaceCard {
+                RowLayout {
                     Layout.fillWidth: true
-                    title: qsTr("输出操作")
-                    subtitle: qsTr("执行转录、复制结果或导出文本。")
+                    spacing: 10
 
-                    Flow {
+                    ColumnLayout {
                         Layout.fillWidth: true
-                        spacing: 10
+                        spacing: 4
 
-                        Button {
-                            text: qsTr("开始转录")
-                            highlighted: true
-                            enabled: viewModel.state.canStartTranscription
-                            icon.source: ImagePath.play
-                            onClicked: viewModel.start_transcription()
+                        Label {
+                            Layout.fillWidth: true
+                            text: viewModel.state.selectedFileName
+                            color: root.textColor
+                            font.pixelSize: 15
+                            font.weight: Font.Medium
+                            elide: Text.ElideMiddle
                         }
 
-                        Button {
-                            text: qsTr("导出文本")
-                            enabled: viewModel.state.canExportTranscript
-                            onClicked: viewModel.export_transcript_with_dialog()
-                        }
-
-                        Button {
-                            text: qsTr("导出字幕")
-                            enabled: viewModel.state.canExportSubtitle
-                            onClicked: viewModel.export_subtitle_with_dialog()
-                        }
-
-                        Button {
-                            text: qsTr("强制停止")
-                            enabled: viewModel.state.canCancelTask
-                            onClicked: viewModel.cancel_current_task()
+                        Label {
+                            text: viewModel.state.fileSuffix + " · " + viewModel.state.fileSizeText
+                            color: root.secondaryTextColor
                         }
                     }
 
-                    Flow {
-                        Layout.fillWidth: true
-                        spacing: 10
-
-                        Button {
-                            text: qsTr("复制全文")
-                            enabled: viewModel.state.canExportTranscript
-                            onClicked: viewModel.copy_transcript()
-                        }
-
-                        Button {
-                            text: qsTr("复制字幕")
-                            enabled: viewModel.state.canExportSubtitle
-                            onClicked: viewModel.copy_subtitle()
-                        }
-
-                        BusyIndicator {
-                            running: viewModel.state.isBusy
-                            visible: running
-                        }
+                    Button {
+                        text: qsTr("选择文件")
+                        icon.source: ImagePath.upload
+                        onClicked: viewModel.pick_input_file()
                     }
 
-                    StatusChip {
-                        visible: viewModel.state.lastError !== ""
-                        text: viewModel.state.lastError
-                        tone: "danger"
+                    Button {
+                        text: qsTr("清除")
+                        enabled: viewModel.state.selectedFilePath !== ""
+                        onClicked: viewModel.clear_selected_file()
                     }
                 }
             }
@@ -312,6 +287,16 @@ Rectangle {
                         text: qsTr("时长 ") + viewModel.state.durationText
                         tone: "neutral"
                     }
+
+                    Item {
+                        Layout.fillWidth: true
+                    }
+
+                    Button {
+                        text: qsTr("复制全文")
+                        enabled: viewModel.state.canExportTranscript
+                        onClicked: viewModel.copy_transcript()
+                    }
                 }
 
                 TextArea {
@@ -331,6 +316,21 @@ Rectangle {
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 8
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 10
+
+                        Item {
+                            Layout.fillWidth: true
+                        }
+
+                        Button {
+                            text: qsTr("复制字幕")
+                            enabled: viewModel.state.canExportSubtitle
+                            onClicked: viewModel.copy_subtitle()
+                        }
+                    }
 
                     Repeater {
                         model: viewModel.timeline_items
@@ -359,9 +359,9 @@ Rectangle {
                                     }
 
                                     Label {
+                                        Layout.fillWidth: true
                                         text: modelData.startLabel + "  →  " + modelData.endLabel
                                         color: root.secondaryTextColor
-                                        Layout.fillWidth: true
                                     }
 
                                     Label {
@@ -382,12 +382,21 @@ Rectangle {
 
                     Label {
                         visible: viewModel.timeline_items.length === 0
-                        text: qsTr("暂无字幕时间线。加载模型并完成一次转录后，这里会显示聚合字幕。")
+                        text: qsTr("暂无字幕时间线。完成一次转录后，这里会显示聚合字幕。")
                         color: root.secondaryTextColor
                         wrapMode: Text.WordWrap
                     }
                 }
             }
         }
+    }
+
+    ModelLoadPrompt {
+        id: modelLoadPrompt
+        anchors.fill: parent
+        navigationHost: root.navigationHost
+        actionTitle: qsTr("开始转录前需要先加载共享模型")
+        actionDescription: qsTr("当前文件已经准备好。立即加载后会在模型就绪后自动继续转录，你也可以先前往设置页初始化或重载模型。")
+        onLoadRequested: viewModel.load_model_and_continue()
     }
 }

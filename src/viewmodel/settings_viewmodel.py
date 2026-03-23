@@ -59,9 +59,19 @@ class SettingsViewModel(QObject):
         hardware_summary = dict(self._application_state.state["hardwareSummary"])
         shared_state = self._shared_model_runtime.state
         return {
+            "modelReady": shared_state["modelReady"],
             "modelName": shared_state["modelName"],
             "modelStatusText": shared_state["modelStatusText"],
+            "modelDetails": shared_state["modelDetails"],
+            "taskStatusText": shared_state["taskStatusText"],
+            "lastError": shared_state["lastError"],
+            "isBusy": shared_state["isBusy"],
+            "isLoadingModel": shared_state["isLoadingModel"],
+            "loadingProgress": shared_state["loadingProgress"],
+            "canLoadModel": shared_state["canLoadModel"],
+            "canUnloadModel": shared_state["canUnloadModel"],
             "canReloadModel": shared_state["canReloadModel"],
+            "canCancelTask": shared_state["canCancelTask"],
             "hardwareSummary": hardware_summary,
         }
 
@@ -101,9 +111,24 @@ class SettingsViewModel(QObject):
         self._settings_store.reset_defaults()
 
     @Slot()
+    def load_model(self) -> None:
+        """初始化共享模型。"""
+        self._shared_model_runtime.load_model()
+
+    @Slot()
     def reload_model(self) -> None:
         """重载共享模型。"""
         self._shared_model_runtime.reload_model()
+
+    @Slot()
+    def unload_model(self) -> None:
+        """卸载共享模型。"""
+        self._shared_model_runtime.unload_model()
+
+    @Slot(result=bool)
+    def cancel_current_task(self) -> bool:
+        """取消当前共享模型任务。"""
+        return self._shared_model_runtime.cancel_current_task()
 
     def _on_settings_changed(self) -> None:
         """在设置变化时转发通知。"""

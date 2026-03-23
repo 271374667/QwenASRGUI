@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from loguru import logger
 from PySide6.QtCore import QObject, Property, Signal, Slot
@@ -10,7 +10,9 @@ from qthreadwithreturn import QThreadWithReturn
 
 from src.application.app_state import ApplicationState
 from src.application.settings_store import SettingsStore
-from src.model import ASRService
+
+if TYPE_CHECKING:
+    from src.model import ASRService
 
 
 class SharedModelRuntime(QObject):
@@ -28,7 +30,8 @@ class SharedModelRuntime(QObject):
         super().__init__(parent)
         self._application_state = application_state
         self._settings_store = settings_store
-        self._asr_service = ASRService()
+        self._asr_service: Optional["ASRService"] = None
+        self._asr_signals_connected = False
         self._task_thread: Optional[QThreadWithReturn] = None
         self._cancel_requested = False
         self._state: Dict[str, Any] = {
@@ -46,8 +49,6 @@ class SharedModelRuntime(QObject):
             "canReloadModel": False,
             "canCancelTask": False,
         }
-        self._asr_service.signals.status_changed.connect(self._on_shared_status_changed)
-        self._asr_service.signals.loading_progress.connect(self._on_loading_progress)
         self._application_state.state_changed.connect(self._on_application_state_changed)
         self._refresh_state()
 
@@ -59,7 +60,7 @@ class SharedModelRuntime(QObject):
     @property
     def asr_service(self):
         """返回底层共享 ASR 服务。"""
-        return self._asr_service
+        return self._ensure_asr_service()
 
     @Slot()
     def load_model(self) -> None:
@@ -108,37 +109,39 @@ class SharedModelRuntime(QObject):
 
     def _load_model_worker(self) -> Dict[str, Any]:
         """后台执行模型加载。"""
+        asr_service = self._ensure_asr_service()
         system_config = self._settings_store.build_system_config()
         if system_config.enable_memory_limit:
             from src.model import SystemHandler
 
             SystemHandler(system_config).apply_limits()
 
-        success = self._asr_service.load_model(self._settings_store.build_model_config())
+        success = asr_service.load_model(self._settings_store.build_model_config())
         if not success:
             raise RuntimeError("模型加载失败")
 
-        self._asr_service.configure_interface(self._settings_store.build_asr_config())
+        asr_service.configure_interface(self._settings_store.build_asr_config())
         return {"success": True}
 
     def _reload_model_worker(self) -> Dict[str, Any]:
         """后台执行模型重载。"""
+        asr_service = self._ensure_asr_service()
         system_config = self._settings_store.build_system_config()
         if system_config.enable_memory_limit:
             from src.model import SystemHandler
 
             SystemHandler(system_config).apply_limits()
 
-        success = self._asr_service.reload_model(self._settings_store.build_model_config())
+        success = asr_service.reload_model(self._settings_store.build_model_config())
         if not success:
             raise RuntimeError("模型重新加载失败")
 
-        self._asr_service.configure_interface(self._settings_store.build_asr_config())
+        asr_service.configure_interface(self._settings_store.build_asr_config())
         return {"success": True}
 
     def _unload_model_worker(self) -> Dict[str, Any]:
         """后台执行模型卸载。"""
-        self._asr_service.unload_model()
+        self._ensure_asr_service().unload_model()
         return {"success": True}
 
     def _start_background_task(
@@ -177,12 +180,20 @@ class SharedModelRuntime(QObject):
 
     def _refresh_state(self) -> None:
         """刷新共享模型状态。"""
-        model_ready = self._asr_service.is_ready
-        quantization = (
-            self._asr_service.actual_quantization_mode.value
-            if self._asr_service.actual_quantization_mode is not None
-            else "auto"
-        )
+        if self._asr_service is None:
+            model_ready = False
+            model_status_text = "未加载"
+            model_name = "Qwen3-ASR"
+            quantization = "auto"
+        else:
+            model_ready = self._asr_service.is_ready
+            model_status_text = self._asr_service.status.value
+            model_name = self._asr_service.model_name
+            quantization = (
+                self._asr_service.actual_quantization_mode.value
+                if self._asr_service.actual_quantization_mode is not None
+                else "auto"
+            )
         app_busy = bool(self._application_state.state["isBusy"])
         task_status_text = (
             str(self._state["taskStatusText"])
@@ -192,8 +203,8 @@ class SharedModelRuntime(QObject):
         self._state.update(
             {
                 "modelReady": model_ready,
-                "modelStatusText": self._asr_service.status.value,
-                "modelName": self._asr_service.model_name,
+                "modelStatusText": model_status_text,
+                "modelName": model_name,
                 "modelDetails": (
                     f"量化模式: {quantization}" if model_ready else "共享模型尚未加载"
                 ),
@@ -256,9 +267,23 @@ class SharedModelRuntime(QObject):
             self._state["taskStatusText"] = "任务已强制停止"
             self._state["lastError"] = ""
         self._cancel_requested = False
-        if not self._asr_service.is_ready:
+        if self._asr_service is None or not self._asr_service.is_ready:
             self._state["loadingProgress"] = 0
         self._application_state.finish_operation()
         self._refresh_state()
         if thread is not None:
             thread.deleteLater()
+
+    def _ensure_asr_service(self):
+        """按需创建共享 ASR 服务，避免启动时导入重模块。"""
+        if self._asr_service is None:
+            from src.model import ASRService
+
+            self._asr_service = ASRService()
+
+        if not self._asr_signals_connected:
+            self._asr_service.signals.status_changed.connect(self._on_shared_status_changed)
+            self._asr_service.signals.loading_progress.connect(self._on_loading_progress)
+            self._asr_signals_connected = True
+
+        return self._asr_service

@@ -35,24 +35,34 @@ ApplicationWindow {
         anchors.topMargin: titleBar.barHeight
         pages: [
             {
+                "key": "transcription",
                 "name": qsTr("转录"),
                 "iconSource": ImagePath.mic,
                 "qmlPath": Qt.resolvedUrl("Page/Transcription.qml"),
-                "pageProps": ({ "viewModel": transcriptionPageViewModel })
+                "pageProps": ({
+                    "viewModel": transcriptionPageViewModel,
+                    "navigationHost": pageLayout
+                })
             },
             {
+                "key": "alignment",
                 "name": qsTr("对齐"),
                 "iconSource": ImagePath.timePicker,
                 "qmlPath": Qt.resolvedUrl("Page/Align.qml"),
-                "pageProps": ({ "viewModel": alignmentPageViewModel })
+                "pageProps": ({
+                    "viewModel": alignmentPageViewModel,
+                    "navigationHost": pageLayout
+                })
             },
             {
+                "key": "log",
                 "name": qsTr("日志"),
                 "iconSource": ImagePath.log,
                 "qmlPath": Qt.resolvedUrl("Page/Log.qml"),
                 "pageProps": ({ "viewModel": logPageViewModel })
             },
             {
+                "key": "settings",
                 "name": qsTr("设置"),
                 "iconSource": ImagePath.settings,
                 "qmlPath": Qt.resolvedUrl("Page/Settings.qml"),

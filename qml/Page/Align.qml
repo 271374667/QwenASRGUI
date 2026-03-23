@@ -10,6 +10,7 @@ Rectangle {
     id: root
 
     required property var viewModel
+    property var navigationHost: null
 
     readonly property bool isDark: Application.styleHints.colorScheme === Qt.ColorScheme.Dark
     readonly property color backgroundColor: isDark ? "#1c1c1c" : "#f6f6f6"
@@ -48,12 +49,12 @@ Rectangle {
 
             SurfaceCard {
                 Layout.fillWidth: true
-                title: qsTr("强制对齐")
-                subtitle: qsTr("将已有文本与音频逐词对齐，生成精确的时间戳和字幕。")
+                title: qsTr("开始对齐")
+                subtitle: qsTr("音频和文本准备好后直接开始，模型未就绪时会按需提示加载并继续。")
 
                 ColumnLayout {
                     Layout.fillWidth: true
-                    spacing: 12
+                    spacing: 14
 
                     RowLayout {
                         Layout.fillWidth: true
@@ -64,9 +65,63 @@ Rectangle {
                             tone: root.statusTone(viewModel.state.modelStatusText)
                         }
 
+                        StatusChip {
+                            text: viewModel.state.selectedFilePath !== "" && viewModel.state.inputText.trim() !== ""
+                                ? qsTr("材料已就绪")
+                                : qsTr("等待补全材料")
+                            tone: viewModel.state.selectedFilePath !== "" && viewModel.state.inputText.trim() !== ""
+                                ? "accent"
+                                : "neutral"
+                        }
+
                         Label {
-                            text: viewModel.state.modelName + " · " + qsTr("与转录页共享模型")
+                            Layout.fillWidth: true
+                            text: viewModel.state.modelReady
+                                ? viewModel.state.modelName + " · " + viewModel.state.modelDetails
+                                : qsTr("模型管理已移至设置页，开始对齐时会按需提示加载。")
                             color: root.secondaryTextColor
+                            wrapMode: Text.WordWrap
+                        }
+
+                        BusyIndicator {
+                            running: viewModel.state.isBusy
+                            visible: running
+                        }
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: viewModel.state.selectedFilePath !== ""
+                            ? viewModel.state.selectedFileName + " · " + viewModel.state.fileSuffix + " · " + viewModel.state.fileSizeText
+                            : qsTr("请选择音频或视频文件作为对齐源。")
+                        color: root.textColor
+                        wrapMode: Text.WordWrap
+                        elide: Text.ElideMiddle
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 10
+
+                        ColumnLayout {
+                            spacing: 4
+
+                            Label {
+                                text: qsTr("对齐语言")
+                                color: root.secondaryTextColor
+                            }
+
+                            ComboBox {
+                                id: languageCombo
+                                Layout.preferredWidth: 180
+                                model: viewModel.language_options
+                                textRole: "label"
+                                onActivated: viewModel.update_language(viewModel.language_options[index].value)
+                                Component.onCompleted: root.syncLanguageSelection()
+                            }
+                        }
+
+                        Item {
                             Layout.fillWidth: true
                         }
                     }
@@ -76,15 +131,35 @@ Rectangle {
                         spacing: 10
 
                         Button {
-                            text: qsTr("加载共享模型")
-                            enabled: viewModel.state.canLoadModel
-                            onClicked: viewModel.load_model()
+                            text: qsTr("选择音频")
+                            icon.source: ImagePath.upload
+                            onClicked: viewModel.pick_input_file()
                         }
 
                         Button {
-                            text: qsTr("重载模型")
-                            enabled: viewModel.state.canReloadModel
-                            onClicked: viewModel.reload_model()
+                            text: qsTr("开始对齐")
+                            highlighted: true
+                            enabled: viewModel.state.canStartAlignment
+                            icon.source: ImagePath.timePicker
+                            onClicked: {
+                                if (!viewModel.state.modelReady) {
+                                    modelLoadPrompt.openPrompt()
+                                    return
+                                }
+                                viewModel.start_alignment()
+                            }
+                        }
+
+                        Button {
+                            text: qsTr("导出字幕")
+                            enabled: viewModel.state.canExportSubtitle
+                            onClicked: viewModel.export_subtitle_with_dialog()
+                        }
+
+                        Button {
+                            text: qsTr("复制时间戳")
+                            enabled: viewModel.state.hasResult
+                            onClicked: viewModel.copy_raw_timestamps()
                         }
 
                         Button {
@@ -92,6 +167,20 @@ Rectangle {
                             enabled: viewModel.state.canCancelTask
                             onClicked: viewModel.cancel_current_task()
                         }
+                    }
+
+                    ProgressBar {
+                        visible: viewModel.state.isLoadingModel
+                        Layout.fillWidth: true
+                        from: 0
+                        to: 100
+                        value: viewModel.state.loadingProgress
+                    }
+
+                    StatusChip {
+                        visible: viewModel.state.lastError !== ""
+                        text: viewModel.state.lastError
+                        tone: "danger"
                     }
                 }
 
@@ -104,7 +193,7 @@ Rectangle {
                     StatTile {
                         label: qsTr("当前任务")
                         value: viewModel.state.taskStatusText
-                        hint: qsTr("音频与文本准备完成后即可执行对齐")
+                        hint: qsTr("音频、文本和共享模型的综合状态")
                     }
 
                     StatTile {
@@ -121,115 +210,44 @@ Rectangle {
                 }
             }
 
-            GridLayout {
+            SurfaceCard {
                 Layout.fillWidth: true
-                columns: width >= 1120 ? 2 : 1
-                rowSpacing: 24
-                columnSpacing: 24
+                title: qsTr("对齐音频")
+                subtitle: qsTr("选择音频或视频文件作为对齐源。")
 
-                SurfaceCard {
+                RowLayout {
                     Layout.fillWidth: true
-                    Layout.preferredWidth: 1
-                    title: qsTr("对齐音频")
-                    subtitle: qsTr("选择音频或视频文件作为对齐源。")
+                    spacing: 10
 
-                    Label {
-                        text: viewModel.state.selectedFileName
-                        color: root.textColor
-                        font.pixelSize: 15
-                        font.weight: Font.Medium
+                    ColumnLayout {
                         Layout.fillWidth: true
-                        elide: Text.ElideMiddle
-                    }
+                        spacing: 4
 
-                    Label {
-                        text: viewModel.state.fileSuffix + " · " + viewModel.state.fileSizeText
-                        color: root.secondaryTextColor
-                    }
-
-                    Flow {
-                        Layout.fillWidth: true
-
-                        Button {
-                            text: qsTr("选择音频")
-                            icon.source: ImagePath.upload
-                            onClicked: viewModel.pick_input_file()
+                        Label {
+                            Layout.fillWidth: true
+                            text: viewModel.state.selectedFileName
+                            color: root.textColor
+                            font.pixelSize: 15
+                            font.weight: Font.Medium
+                            elide: Text.ElideMiddle
                         }
 
-                        Button {
-                            text: qsTr("清空结果")
-                            enabled: viewModel.state.hasResult
-                            onClicked: viewModel.clear_result()
-                        }
-                    }
-                }
-
-                SurfaceCard {
-                    Layout.fillWidth: true
-                    Layout.preferredWidth: 1
-                    title: qsTr("对齐选项")
-                    subtitle: qsTr("选择语言并执行对齐。")
-
-                    ComboBox {
-                        id: languageCombo
-                        Layout.fillWidth: true
-                        model: viewModel.language_options
-                        textRole: "label"
-                        onActivated: viewModel.update_language(viewModel.language_options[index].value)
-                        Component.onCompleted: root.syncLanguageSelection()
-                    }
-
-                    Flow {
-                        Layout.fillWidth: true
-                        spacing: 10
-
-                        Button {
-                            text: qsTr("开始对齐")
-                            highlighted: true
-                            enabled: viewModel.state.canStartAlignment
-                            icon.source: ImagePath.timePicker
-                            onClicked: viewModel.start_alignment()
-                        }
-
-                        Button {
-                            text: qsTr("导出字幕")
-                            enabled: viewModel.state.canExportSubtitle
-                            onClicked: viewModel.export_subtitle_with_dialog()
-                        }
-
-                        Button {
-                            text: qsTr("强制停止")
-                            enabled: viewModel.state.canCancelTask
-                            onClicked: viewModel.cancel_current_task()
+                        Label {
+                            text: viewModel.state.fileSuffix + " · " + viewModel.state.fileSizeText
+                            color: root.secondaryTextColor
                         }
                     }
 
-                    Flow {
-                        Layout.fillWidth: true
-                        spacing: 10
-
-                        Button {
-                            text: qsTr("复制字幕")
-                            enabled: viewModel.state.canExportSubtitle
-                            onClicked: viewModel.copy_subtitle()
-                        }
-
-                        Button {
-                            text: qsTr("复制时间戳")
-                            enabled: viewModel.state.hasResult
-                            onClicked: viewModel.copy_raw_timestamps()
-                        }
-
-                        BusyIndicator {
-                            running: viewModel.state.isBusy
-                            visible: running
-                        }
+                    Button {
+                        text: qsTr("选择音频")
+                        icon.source: ImagePath.upload
+                        onClicked: viewModel.pick_input_file()
                     }
 
-                    StatusChip {
-                        visible: viewModel.state.lastError !== ""
-                        text: viewModel.state.lastError
-                        tone: "danger"
+                    Button {
+                        text: qsTr("清空结果")
+                        enabled: viewModel.state.hasResult
+                        onClicked: viewModel.clear_result()
                     }
                 }
             }
@@ -268,6 +286,16 @@ Rectangle {
                         text: qsTr("词级时间戳 ") + viewModel.state.wordCount
                         tone: "neutral"
                     }
+
+                    Item {
+                        Layout.fillWidth: true
+                    }
+
+                    Button {
+                        text: qsTr("复制字幕")
+                        enabled: viewModel.state.canExportSubtitle
+                        onClicked: viewModel.copy_subtitle()
+                    }
                 }
 
                 TextArea {
@@ -293,6 +321,15 @@ Rectangle {
                 }
             }
         }
+    }
+
+    ModelLoadPrompt {
+        id: modelLoadPrompt
+        anchors.fill: parent
+        navigationHost: root.navigationHost
+        actionTitle: qsTr("开始对齐前需要先加载共享模型")
+        actionDescription: qsTr("当前音频和文本已经准备好。立即加载后会在模型就绪后自动继续对齐，你也可以先前往设置页初始化或重载模型。")
+        onLoadRequested: viewModel.load_model_and_continue()
     }
 
     Connections {

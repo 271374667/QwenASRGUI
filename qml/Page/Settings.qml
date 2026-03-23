@@ -15,6 +15,13 @@ Rectangle {
     readonly property color textColor: isDark ? "#f5f5f5" : "#202020"
     readonly property color secondaryTextColor: isDark ? "#b3b3b3" : "#6b6b6b"
 
+    function statusTone(statusText) {
+        if (statusText === "就绪") return "success"
+        if (statusText === "加载中" || statusText === "处理中") return "warning"
+        if (statusText === "错误") return "danger"
+        return "neutral"
+    }
+
     function setComboByValue(combo, items, value) {
         for (let i = 0; i < items.length; ++i) {
             if (items[i].value === value) {
@@ -54,8 +61,78 @@ Rectangle {
 
             SurfaceCard {
                 Layout.fillWidth: true
-                title: qsTr("运行设置")
-                subtitle: qsTr("设置会自动保存，重载模型后即可应用模型和推理相关配置。")
+                title: qsTr("共享模型")
+                subtitle: qsTr("初始化、重载和卸载模型都集中在这里。转录页和对齐页会在需要时按需提示加载。")
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 12
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 10
+
+                        StatusChip {
+                            text: viewModel.state.modelStatusText
+                            tone: root.statusTone(viewModel.state.modelStatusText)
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: viewModel.state.modelName + " · " + viewModel.state.modelDetails
+                            color: root.secondaryTextColor
+                            wrapMode: Text.WordWrap
+                        }
+
+                        BusyIndicator {
+                            running: viewModel.state.isBusy
+                            visible: running
+                        }
+                    }
+
+                    Flow {
+                        Layout.fillWidth: true
+                        spacing: 10
+
+                        Button {
+                            text: qsTr("初始化模型")
+                            enabled: viewModel.state.canLoadModel
+                            onClicked: viewModel.load_model()
+                        }
+
+                        Button {
+                            text: qsTr("重载模型")
+                            enabled: viewModel.state.canReloadModel
+                            onClicked: viewModel.reload_model()
+                        }
+
+                        Button {
+                            text: qsTr("卸载模型")
+                            enabled: viewModel.state.canUnloadModel
+                            onClicked: viewModel.unload_model()
+                        }
+
+                        Button {
+                            text: qsTr("强制停止")
+                            enabled: viewModel.state.canCancelTask
+                            onClicked: viewModel.cancel_current_task()
+                        }
+                    }
+
+                    ProgressBar {
+                        visible: viewModel.state.isLoadingModel
+                        Layout.fillWidth: true
+                        from: 0
+                        to: 100
+                        value: viewModel.state.loadingProgress
+                    }
+
+                    StatusChip {
+                        visible: viewModel.state.lastError !== ""
+                        text: viewModel.state.lastError
+                        tone: "danger"
+                    }
+                }
 
                 GridLayout {
                     Layout.fillWidth: true
@@ -65,8 +142,8 @@ Rectangle {
 
                     StatTile {
                         label: qsTr("共享模型")
-                        value: viewModel.state.modelName
-                        hint: viewModel.state.modelStatusText
+                        value: viewModel.state.modelReady ? viewModel.state.modelName : qsTr("未初始化")
+                        hint: viewModel.state.taskStatusText
                     }
 
                     StatTile {
@@ -81,6 +158,12 @@ Rectangle {
                         hint: viewModel.state.hardwareSummary.hasGpu ? viewModel.state.hardwareSummary.gpuMemoryGb + " GB" : qsTr("未检测到 GPU")
                     }
                 }
+            }
+
+            SurfaceCard {
+                Layout.fillWidth: true
+                title: qsTr("运行设置")
+                subtitle: qsTr("设置会自动保存。模型和推理相关配置会在下次初始化或重载后生效。")
 
                 RowLayout {
                     Layout.fillWidth: true
@@ -89,12 +172,6 @@ Rectangle {
                     Button {
                         text: qsTr("恢复默认")
                         onClicked: viewModel.reset_defaults()
-                    }
-
-                    Button {
-                        text: qsTr("重载共享模型")
-                        enabled: viewModel.state.canReloadModel
-                        onClicked: viewModel.reload_model()
                     }
                 }
             }

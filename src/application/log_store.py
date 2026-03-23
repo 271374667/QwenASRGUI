@@ -7,9 +7,8 @@ from typing import Any, Dict, List, Optional
 
 from loguru import logger
 from PySide6.QtCore import QObject, Property, Signal, Slot
-from PySide6.QtWidgets import QFileDialog
 
-from src.application.file_support import LOG_FILE_FILTER, normalize_local_path
+from src.application.file_support import normalize_local_path
 
 
 class LogStore(QObject):
@@ -64,19 +63,6 @@ class LogStore(QObject):
         """清空日志记录。"""
         self._entries.clear()
         self.entries_changed.emit()
-
-    @Slot(result=bool)
-    def export_logs_with_dialog(self) -> bool:
-        """通过文件对话框导出日志。"""
-        file_path, _ = QFileDialog.getSaveFileName(
-            None,
-            "导出日志",
-            str(Path.cwd() / "qwenasr.log"),
-            LOG_FILE_FILTER,
-        )
-        if not file_path:
-            return False
-        return self.export_logs(file_path)
 
     @Slot(str, result=bool)
     def export_logs(self, file_path: str) -> bool:
