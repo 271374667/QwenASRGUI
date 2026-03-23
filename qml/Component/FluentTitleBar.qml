@@ -34,6 +34,10 @@ Item {
     readonly property color pressedColor: isDark ? "#454545" : "#d9d9d9"
     readonly property color closeHoverColor: "#c42b1c"
     readonly property color closePressedColor: "#a52619"
+    readonly property string minimizeGlyph: "\uE921"
+    readonly property string maximizeGlyph: "\uE922"
+    readonly property string restoreGlyph: "\uE923"
+    readonly property string closeGlyph: "\uE8BB"
 
     function hasIcon(iconSource) {
         return iconSource && iconSource.toString() !== ""
@@ -49,14 +53,6 @@ Item {
         } else {
             root.window.showMaximized()
         }
-    }
-
-    function currentMaximizeIconSource() {
-        if (root.isMaximized) {
-            return root.hasIcon(root.restoreIconSource) ? root.restoreIconSource : root.maximizeIconSource
-        }
-
-        return root.hasIcon(root.maximizeIconSource) ? root.maximizeIconSource : root.restoreIconSource
     }
 
     Rectangle {
@@ -149,7 +145,7 @@ Item {
             spacing: 0
 
             WindowControlButton {
-                iconSource: root.minimizeIconSource
+                glyph: root.minimizeGlyph
                 onClicked: {
                     if (root.window) {
                         root.window.showMinimized()
@@ -158,12 +154,12 @@ Item {
             }
 
             WindowControlButton {
-                iconSource: root.currentMaximizeIconSource()
+                glyph: root.isMaximized ? root.restoreGlyph : root.maximizeGlyph
                 onClicked: root.toggleMaximized()
             }
 
             WindowControlButton {
-                iconSource: root.closeIconSource
+                glyph: root.closeGlyph
                 isCloseButton: true
                 onClicked: {
                     if (root.window) {
@@ -177,7 +173,7 @@ Item {
     component WindowControlButton: Button {
         id: controlButton
 
-        property url iconSource
+        property string glyph
         property bool isCloseButton: false
         readonly property color iconColor: controlButton.isCloseButton && (controlButton.hovered || controlButton.down)
             ? "#ffffff"
@@ -186,16 +182,20 @@ Item {
         Layout.preferredWidth: 46
         Layout.preferredHeight: root.barHeight
         Layout.fillHeight: true
-        visible: root.hasIcon(controlButton.iconSource)
+        visible: controlButton.glyph !== ""
         padding: 0
         hoverEnabled: true
-        display: AbstractButton.IconOnly
         flat: true
 
-        icon.source: controlButton.iconSource
-        icon.width: 10
-        icon.height: 10
-        icon.color: controlButton.iconColor
+        contentItem: Text {
+            text: controlButton.glyph
+            color: controlButton.iconColor
+            font.family: "Segoe MDL2 Assets"
+            font.pixelSize: 10
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            renderType: Text.NativeRendering
+        }
 
         background: Rectangle {
             color: {
