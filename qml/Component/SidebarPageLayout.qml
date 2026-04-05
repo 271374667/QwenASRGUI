@@ -4,8 +4,6 @@ import QtQuick
 import QtQuick.Controls.FluentWinUI3
 import QtQuick.Layouts
 
-import QtQuick.Controls as Controls
-
 Item {
     id: root
 
@@ -23,10 +21,15 @@ Item {
 
     readonly property var topPages: normalizedPages("top")
     readonly property var bottomPages: normalizedPages("bottom")
-    readonly property var allPages: normalizedPages("__all__")
 
     property int currentIndex: 0
     property int previousIndex: 0
+    property int displayedIndex: -1
+    property int pendingIndex: -1
+    property bool isPreparingPage: false
+    property var pageObjectRegistry: ({})
+    property var incubatorRegistry: ({})
+    property var prepareRequestRegistry: ({})
     property var buttonRegistry: ({})
     property int buttonRegistryVersion: 0
     property var componentRegistry: ({})
@@ -50,7 +53,7 @@ Item {
             let page = root.pages[i]
             let pageSection = page.section ? page.section : "top"
 
-            if (section === "__all__" || pageSection === section) {
+            if (pageSection === section) {
                 result.push({
                     "index": i,
                     "key": page.key ? page.key : "",
@@ -98,6 +101,72 @@ Item {
         return root.buttonRegistry[index] ? root.buttonRegistry[index] : null
     }
 
+    function copyRegistry(sourceRegistry) {
+        let updatedRegistry = ({})
+
+        for (let key in sourceRegistry) {
+            updatedRegistry[key] = sourceRegistry[key]
+        }
+
+        return updatedRegistry
+    }
+
+    function cacheComponent(index, component) {
+        let updatedRegistry = root.copyRegistry(root.componentRegistry)
+        updatedRegistry[index] = component
+        root.componentRegistry = updatedRegistry
+    }
+
+    function cachePageObject(index, pageObject) {
+        let updatedRegistry = root.copyRegistry(root.pageObjectRegistry)
+        updatedRegistry[index] = pageObject
+        root.pageObjectRegistry = updatedRegistry
+    }
+
+    function cacheIncubator(index, incubator) {
+        let updatedRegistry = root.copyRegistry(root.incubatorRegistry)
+        updatedRegistry[index] = incubator
+        root.incubatorRegistry = updatedRegistry
+    }
+
+    function markPageRequested(index) {
+        let updatedRegistry = root.copyRegistry(root.prepareRequestRegistry)
+        updatedRegistry[index] = true
+        root.prepareRequestRegistry = updatedRegistry
+    }
+
+    function clearIncubator(index) {
+        if (!root.incubatorRegistry[index]) {
+            return
+        }
+
+        let updatedRegistry = ({})
+
+        for (let key in root.incubatorRegistry) {
+            if (key !== String(index)) {
+                updatedRegistry[key] = root.incubatorRegistry[key]
+            }
+        }
+
+        root.incubatorRegistry = updatedRegistry
+    }
+
+    function clearRequestedPage(index) {
+        if (!root.prepareRequestRegistry[index]) {
+            return
+        }
+
+        let updatedRegistry = ({})
+
+        for (let key in root.prepareRequestRegistry) {
+            if (key !== String(index)) {
+                updatedRegistry[key] = root.prepareRequestRegistry[key]
+            }
+        }
+
+        root.prepareRequestRegistry = updatedRegistry
+    }
+
     function findPageIndex(pageKey) {
         if (!root.pages || !pageKey) {
             return -1
@@ -117,64 +186,182 @@ Item {
             return null
         }
 
+        let page = root.pages[index]
+        if (!page || !page.qmlPath) {
+            return null
+        }
+
         let cachedComponent = root.componentRegistry[index]
-        if (cachedComponent && cachedComponent.status === Component.Ready) {
+        if (cachedComponent) {
             return cachedComponent
         }
 
         let creationMode = asynchronousLoad ? Component.Asynchronous : Component.PreferSynchronous
-        let component = Qt.createComponent(root.pages[index].qmlPath, creationMode)
+        let component = Qt.createComponent(page.qmlPath, creationMode)
 
         if (component.status === Component.Error) {
-            console.error("Failed to load page component:", root.pages[index].qmlPath, component.errorString())
+            console.error("Failed to load page component:", page.qmlPath, component.errorString())
             return null
         }
 
-        let updatedRegistry = ({})
-        for (let key in root.componentRegistry) {
-            updatedRegistry[key] = root.componentRegistry[key]
-        }
-        updatedRegistry[index] = component
-        root.componentRegistry = updatedRegistry
+        root.cacheComponent(index, component)
         return component
     }
 
-    function createPageObject(index) {
-        let component = root.getPageComponent(index, false)
-        if (!component) {
-            return null
+    function getPageObject(index) {
+        return root.pageObjectRegistry[index] ? root.pageObjectRegistry[index] : null
+    }
+
+    function getPageProps(index) {
+        if (!root.pages || index < 0 || index >= root.pages.length) {
+            return ({})
         }
 
-        if (component.status !== Component.Ready) {
-            component = Qt.createComponent(root.pages[index].qmlPath, Component.PreferSynchronous)
-            if (component.status === Component.Error) {
-                console.error("Failed to synchronously load page:", root.pages[index].qmlPath, component.errorString())
-                return null
+        let props = ({})
+        let source = root.pages[index].pageProps
+
+        if (source) {
+            for (let key in source) {
+                props[key] = source[key]
             }
         }
 
-        return component.createObject(stackView, root.pages[index].pageProps ? root.pages[index].pageProps : {})
+        return props
     }
 
-    function navigateTo(index) {
-        if (!root.pages || index < 0 || index >= root.pages.length || root.currentIndex === index) {
-            return
-        }
-
-        let pageObject = createPageObject(index)
+    function initializePageObject(index, pageObject) {
         if (!pageObject) {
             return
         }
 
-        root.previousIndex = root.currentIndex
-        root.currentIndex = index
-        stackView.replace(null, pageObject)
+        pageObject.parent = pageHost
+        pageObject.x = 0
+        pageObject.y = 0
+        pageObject.width = Qt.binding(function() {
+            return pageHost.width
+        })
+        pageObject.height = Qt.binding(function() {
+            return pageHost.height
+        })
+        pageObject.visible = false
+        pageObject.enabled = false
+        root.cachePageObject(index, pageObject)
     }
 
-    function navigateToPage(pageKey) {
-        let targetIndex = root.findPageIndex(pageKey)
-        if (targetIndex >= 0) {
-            root.navigateTo(targetIndex)
+    function showPage(index) {
+        for (let key in root.pageObjectRegistry) {
+            let numericKey = Number(key)
+            let pageObject = root.pageObjectRegistry[key]
+            let isActive = numericKey === index
+            pageObject.visible = isActive
+            pageObject.enabled = isActive
+            pageObject.opacity = isActive ? 1 : 0
+        }
+
+        root.displayedIndex = index
+    }
+
+    function finalizeNavigation(index) {
+        if (root.pendingIndex !== index) {
+            return
+        }
+
+        let pageObject = root.getPageObject(index)
+        if (!pageObject) {
+            return
+        }
+
+        root.showPage(index)
+        root.pendingIndex = -1
+        root.isPreparingPage = false
+    }
+
+    function preparePage(index, showPlaceholder) {
+        if (!root.pages || index < 0 || index >= root.pages.length) {
+            return
+        }
+
+        if (showPlaceholder) {
+            root.pendingIndex = index
+            root.isPreparingPage = true
+        }
+
+        if (root.getPageObject(index)) {
+            root.clearRequestedPage(index)
+            root.finalizeNavigation(index)
+            return
+        }
+
+        root.markPageRequested(index)
+        root.processPreparationQueue()
+        preparationTimer.start()
+    }
+
+    function processPreparationQueue() {
+        let hasPendingWork = false
+
+        for (let key in root.prepareRequestRegistry) {
+            let index = Number(key)
+
+            if (root.getPageObject(index)) {
+                root.clearRequestedPage(index)
+                root.finalizeNavigation(index)
+                continue
+            }
+
+            let incubator = root.incubatorRegistry[index]
+            if (incubator) {
+                hasPendingWork = true
+
+                if (incubator.status === Component.Ready && incubator.object) {
+                    root.clearIncubator(index)
+                    root.initializePageObject(index, incubator.object)
+                    root.clearRequestedPage(index)
+                    root.finalizeNavigation(index)
+                } else if (incubator.status === Component.Error) {
+                    console.error("Failed to incubate page object:", index)
+                    root.clearIncubator(index)
+                    root.clearRequestedPage(index)
+                    if (root.pendingIndex === index) {
+                        root.pendingIndex = -1
+                        root.isPreparingPage = false
+                    }
+                }
+
+                continue
+            }
+
+            let component = root.getPageComponent(index, true)
+            if (!component) {
+                root.clearRequestedPage(index)
+                if (root.pendingIndex === index) {
+                    root.pendingIndex = -1
+                    root.isPreparingPage = false
+                }
+                continue
+            }
+
+            hasPendingWork = true
+
+            if (component.status === Component.Ready) {
+                let incubator = component.incubateObject(
+                    pageHost,
+                    root.getPageProps(index),
+                    Qt.Asynchronous
+                )
+                root.cacheIncubator(index, incubator)
+            } else if (component.status === Component.Error) {
+                console.error("Failed to prepare page component:", root.pages[index].qmlPath, component.errorString())
+                root.clearRequestedPage(index)
+                if (root.pendingIndex === index) {
+                    root.pendingIndex = -1
+                    root.isPreparingPage = false
+                }
+            }
+        }
+
+        if (!hasPendingWork) {
+            preparationTimer.stop()
         }
     }
 
@@ -187,12 +374,21 @@ Item {
             return
         }
 
-        if (stackView.depth === 0) {
-            let pageObject = createPageObject(root.currentIndex)
-            if (pageObject) {
-                stackView.push(pageObject, {}, Controls.StackView.Immediate)
+        if (!root.getPageObject(root.currentIndex)) {
+            let component = root.getPageComponent(root.currentIndex, false)
+            if (!component || component.status === Component.Error) {
+                return
             }
+
+            let pageObject = component.createObject(pageHost, root.getPageProps(root.currentIndex))
+            if (!pageObject) {
+                return
+            }
+
+            root.initializePageObject(root.currentIndex, pageObject)
         }
+
+        root.showPage(root.currentIndex)
     }
 
     function preloadNextPage() {
@@ -209,17 +405,43 @@ Item {
                 continue
             }
 
-            root.getPageComponent(index, true)
+            root.preparePage(index, false)
             return
         }
 
         preloadTimer.stop()
     }
 
+    function navigateTo(index) {
+        if (!root.pages || index < 0 || index >= root.pages.length || root.currentIndex === index) {
+            return
+        }
+
+        root.previousIndex = root.currentIndex
+        root.currentIndex = index
+
+        if (root.getPageObject(index)) {
+            root.pendingIndex = -1
+            root.isPreparingPage = false
+            root.showPage(index)
+            return
+        }
+
+        root.preparePage(index, true)
+    }
+
+    function navigateToPage(pageKey) {
+        let targetIndex = root.findPageIndex(pageKey)
+        if (targetIndex >= 0) {
+            root.navigateTo(targetIndex)
+        }
+    }
+
     onPagesChanged: {
         if (!root.pages || root.pages.length === 0) {
             root.currentIndex = -1
             root.previousIndex = -1
+            root.displayedIndex = -1
             return
         }
 
@@ -235,6 +457,14 @@ Item {
         root.ensureCurrentPageLoaded()
         root.preloadCursor = 0
         preloadTimer.start()
+    }
+
+    Timer {
+        id: preparationTimer
+        interval: 16
+        repeat: true
+        running: false
+        onTriggered: root.processPreparationQueue()
     }
 
     Timer {
@@ -358,39 +588,32 @@ Item {
             color: root.separatorColor
         }
 
-        Controls.StackView {
-            id: stackView
+        Item {
+            id: pageHost
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
 
-            replaceEnter: Transition {
-                ParallelAnimation {
-                    PropertyAnimation {
-                        property: "opacity"
-                        from: 0
-                        to: 1
-                        duration: 200
-                        easing.type: Easing.OutCubic
+            Rectangle {
+                anchors.fill: parent
+                visible: root.isPreparingPage
+                color: root.backgroundColor
+                z: 100
+
+                ColumnLayout {
+                    anchors.centerIn: parent
+                    spacing: 10
+
+                    BusyIndicator {
+                        Layout.alignment: Qt.AlignHCenter
+                        running: root.isPreparingPage
                     }
 
-                    PropertyAnimation {
-                        property: "y"
-                        from: root.currentIndex > root.previousIndex ? 30 : -30
-                        to: 0
-                        duration: 200
-                        easing.type: Easing.OutCubic
+                    Label {
+                        Layout.alignment: Qt.AlignHCenter
+                        text: qsTr("正在准备页面...")
+                        color: root.isDark ? "#d7d7d7" : "#5b5b5b"
                     }
-                }
-            }
-
-            replaceExit: Transition {
-                PropertyAnimation {
-                    property: "opacity"
-                    from: 1
-                    to: 0
-                    duration: 150
-                    easing.type: Easing.InCubic
                 }
             }
         }
