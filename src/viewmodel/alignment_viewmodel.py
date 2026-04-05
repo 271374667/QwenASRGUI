@@ -29,6 +29,7 @@ class AlignmentViewModel(QObject):
     line_items_changed = Signal()
     word_items_changed = Signal()
     language_options_changed = Signal()
+    task_progress_reported = Signal(int, int, str, str)
 
     def __init__(
         self,
@@ -65,6 +66,7 @@ class AlignmentViewModel(QObject):
         ]
         self._local_state = AlignmentPageState()
         self._shared_model_runtime.state_changed.connect(self._on_shared_state_changed)
+        self.task_progress_reported.connect(self._on_task_progress_reported)
 
     @Property("QVariantMap", notify=state_changed)
     def state(self) -> Dict[str, Any]:
@@ -131,6 +133,7 @@ class AlignmentViewModel(QObject):
         self._pending_start_after_model_load = False
         self._local_state.taskStatusText = "音频已就绪，可开始对齐"
         self._local_state.lastError = ""
+        self._reset_task_progress()
         self.state_changed.emit()
         return True
 
@@ -192,6 +195,13 @@ class AlignmentViewModel(QObject):
         self._local_state.taskStatusText = "正在执行强制对齐..."
         self._local_state.lastError = ""
         self._cancel_requested = False
+        self._reset_task_progress()
+        self._apply_task_progress(
+            0,
+            100,
+            "正在准备对齐任务...",
+            "即将开始处理音频与文本",
+        )
         self.state_changed.emit()
 
         thread = QThreadWithReturn(self._align_worker, thread_name="align")
@@ -243,6 +253,7 @@ class AlignmentViewModel(QObject):
     def clear_result(self) -> None:
         self._line_items = []
         self._word_items = []
+        self._reset_task_progress()
         self._local_state.audioDurationText = "--"
         self._local_state.wordCount = 0
         self._local_state.lineCount = 0
@@ -278,6 +289,7 @@ class AlignmentViewModel(QObject):
             self._local_state.selectedFilePath,
             self._local_state.inputText,
             self._local_state.selectedLanguage,
+            progress_callback=self._emit_task_progress,
         )
 
     def _set_error(self, message: str) -> None:
@@ -333,6 +345,53 @@ class AlignmentViewModel(QObject):
             self._local_state.lastError = ""
         self._cancel_requested = False
         self._application_state.finish_operation()
+        self._reset_task_progress()
         self.state_changed.emit()
         if thread is not None:
             thread.deleteLater()
+
+    def _emit_task_progress(
+        self,
+        value: int,
+        maximum: int,
+        status_text: str,
+        detail_text: str,
+    ) -> None:
+        """从后台线程转发任务进度到主线程。"""
+        self.task_progress_reported.emit(value, maximum, status_text, detail_text)
+
+    @Slot(int, int, str, str)
+    def _on_task_progress_reported(
+        self,
+        value: int,
+        maximum: int,
+        status_text: str,
+        detail_text: str,
+    ) -> None:
+        """在主线程中应用任务进度。"""
+        self._apply_task_progress(value, maximum, status_text, detail_text)
+        self.state_changed.emit()
+
+    def _apply_task_progress(
+        self,
+        value: int,
+        maximum: int,
+        status_text: str,
+        detail_text: str,
+    ) -> None:
+        """更新本地任务进度状态。"""
+        normalized_maximum = max(1, int(maximum))
+        normalized_value = max(0, min(int(value), normalized_maximum))
+        self._local_state.taskProgressValue = normalized_value
+        self._local_state.taskProgressMaximum = normalized_maximum
+        self._local_state.taskProgressText = status_text
+        self._local_state.taskProgressDetailText = detail_text
+        if self._local_state.isAligning and status_text:
+            self._local_state.taskStatusText = status_text
+
+    def _reset_task_progress(self) -> None:
+        """清空当前任务进度。"""
+        self._local_state.taskProgressValue = 0
+        self._local_state.taskProgressMaximum = 100
+        self._local_state.taskProgressText = ""
+        self._local_state.taskProgressDetailText = ""

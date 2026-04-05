@@ -12,7 +12,7 @@ import math
 import time
 import torch
 from dataclasses import dataclass
-from typing import List, Optional, Union
+from typing import Callable, List, Optional, Union
 from enum import Enum
 
 from tqdm import tqdm
@@ -132,6 +132,7 @@ class ASRInterface:
         audio_input: Union[str, AudioData],
         return_time_stamps: bool = True,
         show_progress: bool = True,
+        progress_callback: Optional[Callable[[int, int, str, str], None]] = None,
     ) -> TranscriptionResult:
         """
         转录音频文件
@@ -157,6 +158,13 @@ class ASRInterface:
         self._model_holder.set_status(ModelStatus.PROCESSING)
 
         try:
+            self._notify_progress(
+                progress_callback,
+                0,
+                100,
+                "准备转录任务...",
+                "正在初始化转录流程",
+            )
             # 加载音频
             if isinstance(audio_input, str):
                 logger.info(f"开始转录: {audio_input}")
@@ -168,10 +176,25 @@ class ASRInterface:
             # 缓存音频
             self._last_audio = audio
             total_duration = audio.duration
+            self._notify_progress(
+                progress_callback,
+                8,
+                100,
+                "音频已加载，正在切分片段...",
+                f"总时长 {total_duration:.1f} 秒",
+            )
 
             # 分段处理
             segments = self._media_handler.segment_with_tuples(
                 audio, self._config.segment_duration
+            )
+            total_segments = max(1, len(segments))
+            self._notify_progress(
+                progress_callback,
+                12,
+                100,
+                "开始转录音频片段...",
+                f"共 {total_segments} 段，每段约 {self._config.segment_duration:.1f} 秒",
             )
 
             # 逐段处理
@@ -182,7 +205,7 @@ class ASRInterface:
 
             iterator = tqdm(segments, desc="转录进度") if show_progress else segments
 
-            for segment in iterator:
+            for index, segment in enumerate(iterator, start=1):
                 try:
                     result = model.transcribe(
                         audio=segment, return_time_stamps=return_time_stamps
@@ -192,7 +215,10 @@ class ASRInterface:
                     if self._try_quantization_fallback():
                         # 重新开始转录
                         return self.transcribe(
-                            audio_input, return_time_stamps, show_progress
+                            audio_input,
+                            return_time_stamps,
+                            show_progress,
+                            progress_callback,
                         )
                     else:
                         logger.error("推理时显存不足，已是最低精度模式，无法继续降级")
@@ -216,6 +242,18 @@ class ASRInterface:
                         )
 
                 time_offset += self._config.segment_duration
+                processed_seconds = min(
+                    total_duration,
+                    index * self._config.segment_duration,
+                )
+                progress_value = 12 + round(index / total_segments * 78)
+                self._notify_progress(
+                    progress_callback,
+                    progress_value,
+                    100,
+                    "正在转录音频片段...",
+                    f"第 {index}/{total_segments} 段，已处理 {processed_seconds:.1f}/{total_duration:.1f} 秒",
+                )
 
                 # 算力限制：推理后添加延迟
                 if self._config.inference_delay > 0:
@@ -234,6 +272,13 @@ class ASRInterface:
             logger.success(
                 f"转录完成: 语言={result.language}, 时长={result.duration:.1f}秒, "
                 f"文字长度={len(result.text)}"
+            )
+            self._notify_progress(
+                progress_callback,
+                90,
+                100,
+                "转录完成，正在整理结果...",
+                f"识别语言 {result.language or 'unknown'}",
             )
 
             return result
@@ -275,6 +320,7 @@ class ASRInterface:
         audio_input: Union[str, AudioData],
         text: str,
         language: Union[Language, List[Language]] = Language.CHINESE,
+        progress_callback: Optional[Callable[[int, int, str, str], None]] = None,
     ) -> AlignmentResult:
         """
         对齐音频和文本，返回时间戳
@@ -304,6 +350,13 @@ class ASRInterface:
         self._model_holder.set_status(ModelStatus.PROCESSING)
 
         try:
+            self._notify_progress(
+                progress_callback,
+                0,
+                100,
+                "准备对齐任务...",
+                "正在初始化强制对齐流程",
+            )
             # 加载音频
             if isinstance(audio_input, str):
                 logger.info(f"开始对齐: {audio_input}")
@@ -315,6 +368,13 @@ class ASRInterface:
             # 缓存音频
             self._last_audio = audio
             audio_duration = audio.duration
+            self._notify_progress(
+                progress_callback,
+                18,
+                100,
+                "音频已加载，正在准备强制对齐...",
+                f"音频时长 {audio_duration:.1f} 秒，文本长度 {len(text.strip())} 字符",
+            )
 
             # 准备音频数据格式
             audio_tuple = (audio.data, audio.sample_rate)
@@ -324,10 +384,24 @@ class ASRInterface:
 
             # 调用对齐器
             # 如果语言为 None（自动检测），使用默认语言
+            self._notify_progress(
+                progress_callback,
+                42,
+                100,
+                "正在执行强制对齐...",
+                "模型正在计算词级时间戳",
+            )
             align_results = forced_aligner.align(
                 audio=audio_tuple,
                 text=text,
                 language=language_param if language_param is not None else "Chinese",
+            )
+            self._notify_progress(
+                progress_callback,
+                82,
+                100,
+                "强制对齐完成，正在整理时间戳...",
+                f"已返回 {len(align_results[0]) if align_results else 0} 个词级结果",
             )
 
             # 转换结果格式
@@ -358,6 +432,13 @@ class ASRInterface:
                 f"对齐完成: 语言={language_display}, "
                 f"字/词数={result.word_count}, "
                 f"音频时长={audio_duration:.1f}秒"
+            )
+            self._notify_progress(
+                progress_callback,
+                92,
+                100,
+                "对齐完成，正在整理结果...",
+                f"对齐语言 {language_display}",
             )
 
             return result
@@ -482,3 +563,16 @@ class ASRInterface:
 
         except Exception as e:
             logger.warning(f"无法设置低优先级模式: {e}")
+
+    def _notify_progress(
+        self,
+        callback: Optional[Callable[[int, int, str, str], None]],
+        value: int,
+        maximum: int,
+        status_text: str,
+        detail_text: str,
+    ) -> None:
+        """通知调用方当前任务进度。"""
+        if callback is None:
+            return
+        callback(value, maximum, status_text, detail_text)

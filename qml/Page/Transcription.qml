@@ -131,6 +131,37 @@ Rectangle {
                         }
                     }
 
+                    ColumnLayout {
+                        visible: viewModel.state.isTranscribing
+                        Layout.fillWidth: true
+                        spacing: 6
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: viewModel.state.taskProgressText !== ""
+                                ? viewModel.state.taskProgressText
+                                : qsTr("正在执行转录任务...")
+                            color: root.textColor
+                            font.weight: Font.Medium
+                            wrapMode: Text.WordWrap
+                        }
+
+                        Label {
+                            visible: viewModel.state.taskProgressDetailText !== ""
+                            Layout.fillWidth: true
+                            text: viewModel.state.taskProgressDetailText
+                            color: root.secondaryTextColor
+                            wrapMode: Text.WordWrap
+                        }
+
+                        ProgressBar {
+                            Layout.fillWidth: true
+                            from: 0
+                            to: Math.max(1, viewModel.state.taskProgressMaximum)
+                            value: viewModel.state.taskProgressValue
+                        }
+                    }
+
                     ProgressBar {
                         visible: viewModel.state.isLoadingModel
                         Layout.fillWidth: true
@@ -336,59 +367,76 @@ Rectangle {
                         }
                     }
 
-                    Repeater {
-                        model: viewModel.timeline_items
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 340
+                        radius: 12
+                        color: root.isDark ? "#1b1b1b" : "#fcfcfc"
+                        border.width: 1
+                        border.color: root.isDark ? "#343434" : "#e4e4e4"
 
-                        delegate: Rectangle {
-                            required property var modelData
-                            Layout.fillWidth: true
-                            radius: 10
-                            color: root.isDark ? "#1f1f1f" : "#fafafa"
-                            border.width: 1
-                            border.color: root.isDark ? "#343434" : "#e4e4e4"
-                            implicitHeight: lineLayout.implicitHeight + 20
+                        ListView {
+                            id: timelineList
+                            anchors.fill: parent
+                            anchors.margins: 8
+                            clip: true
+                            spacing: 8
+                            model: viewModel.timeline_items
 
-                            ColumnLayout {
-                                id: lineLayout
-                                anchors.fill: parent
-                                anchors.margins: 10
-                                spacing: 6
+                            delegate: Rectangle {
+                                required property var modelData
+                                width: timelineList.width
+                                radius: 10
+                                color: root.isDark ? "#242424" : "#ffffff"
+                                border.width: 1
+                                border.color: root.isDark ? "#343434" : "#e4e4e4"
+                                implicitHeight: lineLayout.implicitHeight + 20
 
-                                RowLayout {
-                                    Layout.fillWidth: true
+                                ColumnLayout {
+                                    id: lineLayout
+                                    anchors.fill: parent
+                                    anchors.margins: 10
+                                    spacing: 6
 
-                                    StatusChip {
-                                        text: "#" + modelData.index
-                                        tone: "neutral"
+                                    RowLayout {
+                                        Layout.fillWidth: true
+
+                                        StatusChip {
+                                            text: "#" + modelData.index
+                                            tone: "neutral"
+                                        }
+
+                                        Label {
+                                            Layout.fillWidth: true
+                                            text: modelData.startLabel + "  →  " + modelData.endLabel
+                                            color: root.secondaryTextColor
+                                        }
+
+                                        Label {
+                                            text: modelData.durationLabel
+                                            color: root.secondaryTextColor
+                                        }
                                     }
 
                                     Label {
                                         Layout.fillWidth: true
-                                        text: modelData.startLabel + "  →  " + modelData.endLabel
-                                        color: root.secondaryTextColor
+                                        wrapMode: Text.WordWrap
+                                        text: modelData.text
+                                        color: root.textColor
                                     }
-
-                                    Label {
-                                        text: modelData.durationLabel
-                                        color: root.secondaryTextColor
-                                    }
-                                }
-
-                                Label {
-                                    Layout.fillWidth: true
-                                    wrapMode: Text.WordWrap
-                                    text: modelData.text
-                                    color: root.textColor
                                 }
                             }
                         }
-                    }
 
-                    Label {
-                        visible: viewModel.timeline_items.length === 0
-                        text: qsTr("暂无字幕时间线。完成一次转录后，这里会显示聚合字幕。")
-                        color: root.secondaryTextColor
-                        wrapMode: Text.WordWrap
+                        Label {
+                            visible: viewModel.timeline_items.length === 0
+                            anchors.centerIn: parent
+                            width: parent.width - 32
+                            text: qsTr("暂无字幕时间线。完成一次转录后，这里会显示聚合字幕。")
+                            color: root.secondaryTextColor
+                            wrapMode: Text.WordWrap
+                            horizontalAlignment: Text.AlignHCenter
+                        }
                     }
                 }
             }

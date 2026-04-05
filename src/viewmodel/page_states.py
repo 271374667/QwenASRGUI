@@ -10,6 +10,10 @@ class TranscriptionPageState:
     fileSuffix: str = "--"
     fileSizeText: str = "--"
     isTranscribing: bool = False
+    taskProgressValue: int = 0
+    taskProgressMaximum: int = 100
+    taskProgressText: str = ""
+    taskProgressDetailText: str = ""
     language: str = "--"
     durationText: str = "--"
     subtitleLineCount: int = 0
@@ -30,6 +34,10 @@ class AlignmentPageState:
     inputText: str = ""
     selectedLanguage: str = "Chinese"
     isAligning: bool = False
+    taskProgressValue: int = 0
+    taskProgressMaximum: int = 100
+    taskProgressText: str = ""
+    taskProgressDetailText: str = ""
     taskStatusText: str = "请选择音频并输入待对齐文本"
     audioDurationText: str = "--"
     wordCount: int = 0

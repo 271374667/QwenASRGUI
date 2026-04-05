@@ -28,6 +28,7 @@ class TranscriptionViewModel(QObject):
     state_changed = Signal()
     timeline_items_changed = Signal()
     raw_timestamp_items_changed = Signal()
+    task_progress_reported = Signal(int, int, str, str)
 
     def __init__(
         self,
@@ -53,6 +54,7 @@ class TranscriptionViewModel(QObject):
         self._raw_timestamp_items: List[Dict[str, Any]] = []
         self._local_state = TranscriptionPageState()
         self._shared_model_runtime.state_changed.connect(self._on_shared_state_changed)
+        self.task_progress_reported.connect(self._on_task_progress_reported)
 
     @Property("QVariantMap", notify=state_changed)
     def state(self) -> Dict[str, Any]:
@@ -117,6 +119,7 @@ class TranscriptionViewModel(QObject):
         self._pending_start_after_model_load = False
         self._local_state.taskStatusText = "文件已就绪，可开始转录"
         self._local_state.lastError = ""
+        self._reset_task_progress()
         self.state_changed.emit()
         return True
 
@@ -130,6 +133,7 @@ class TranscriptionViewModel(QObject):
         self._local_state.fileSizeText = "--"
         self._local_state.taskStatusText = "请选择媒体文件开始转录"
         self._local_state.lastError = ""
+        self._reset_task_progress()
         self.state_changed.emit()
 
     @Slot()
@@ -179,6 +183,13 @@ class TranscriptionViewModel(QObject):
         self._local_state.taskStatusText = "正在语音转录..."
         self._local_state.lastError = ""
         self._cancel_requested = False
+        self._reset_task_progress()
+        self._apply_task_progress(
+            0,
+            100,
+            "正在准备转录任务...",
+            "即将开始处理音频",
+        )
         self.state_changed.emit()
 
         thread = QThreadWithReturn(self._transcribe_worker, thread_name="transcription")
@@ -244,6 +255,7 @@ class TranscriptionViewModel(QObject):
     def clear_result(self) -> None:
         self._timeline_items = []
         self._raw_timestamp_items = []
+        self._reset_task_progress()
         self._local_state.language = "--"
         self._local_state.durationText = "--"
         self._local_state.subtitleLineCount = 0
@@ -274,7 +286,10 @@ class TranscriptionViewModel(QObject):
         return "请选择媒体文件开始转录"
 
     def _transcribe_worker(self) -> Dict[str, Any]:
-        return self._transcription_use_case.execute(self._local_state.selectedFilePath)
+        return self._transcription_use_case.execute_with_progress(
+            self._local_state.selectedFilePath,
+            progress_callback=self._emit_task_progress,
+        )
 
     def _set_error(self, message: str) -> None:
         self._local_state.lastError = message
@@ -330,6 +345,53 @@ class TranscriptionViewModel(QObject):
             self._local_state.lastError = ""
         self._cancel_requested = False
         self._application_state.finish_operation()
+        self._reset_task_progress()
         self.state_changed.emit()
         if thread is not None:
             thread.deleteLater()
+
+    def _emit_task_progress(
+        self,
+        value: int,
+        maximum: int,
+        status_text: str,
+        detail_text: str,
+    ) -> None:
+        """从后台线程转发任务进度到主线程。"""
+        self.task_progress_reported.emit(value, maximum, status_text, detail_text)
+
+    @Slot(int, int, str, str)
+    def _on_task_progress_reported(
+        self,
+        value: int,
+        maximum: int,
+        status_text: str,
+        detail_text: str,
+    ) -> None:
+        """在主线程中应用任务进度。"""
+        self._apply_task_progress(value, maximum, status_text, detail_text)
+        self.state_changed.emit()
+
+    def _apply_task_progress(
+        self,
+        value: int,
+        maximum: int,
+        status_text: str,
+        detail_text: str,
+    ) -> None:
+        """更新本地任务进度状态。"""
+        normalized_maximum = max(1, int(maximum))
+        normalized_value = max(0, min(int(value), normalized_maximum))
+        self._local_state.taskProgressValue = normalized_value
+        self._local_state.taskProgressMaximum = normalized_maximum
+        self._local_state.taskProgressText = status_text
+        self._local_state.taskProgressDetailText = detail_text
+        if self._local_state.isTranscribing and status_text:
+            self._local_state.taskStatusText = status_text
+
+    def _reset_task_progress(self) -> None:
+        """清空当前任务进度。"""
+        self._local_state.taskProgressValue = 0
+        self._local_state.taskProgressMaximum = 100
+        self._local_state.taskProgressText = ""
+        self._local_state.taskProgressDetailText = ""

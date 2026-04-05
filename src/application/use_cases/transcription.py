@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 from src.application.file_support import (
     format_duration,
@@ -27,12 +27,28 @@ class TranscriptionUseCase:
 
     def execute(self, selected_file_path: str) -> Dict[str, Any]:
         """执行转录。"""
+        return self.execute_with_progress(selected_file_path)
+
+    def execute_with_progress(
+        self,
+        selected_file_path: str,
+        progress_callback: Optional[Callable[[int, int, str, str], None]] = None,
+    ) -> Dict[str, Any]:
+        """执行转录并向调用方回传进度。"""
         asr_service = self._shared_model_runtime.asr_service
         asr_service.configure_interface(self._settings_store.build_asr_config())
+        self._notify_progress(
+            progress_callback,
+            2,
+            100,
+            "准备开始转录...",
+            "正在初始化转录参数",
+        )
         result = asr_service.transcribe(
             selected_file_path,
             return_time_stamps=True,
             show_progress=False,
+            progress_callback=progress_callback,
         )
         if result is None:
             raise RuntimeError("转录失败，未返回结果")
@@ -42,6 +58,13 @@ class TranscriptionUseCase:
         if result.time_stamps:
             from src.model import BreaklineAlgorithm
 
+            self._notify_progress(
+                progress_callback,
+                94,
+                100,
+                "正在生成字幕时间线...",
+                f"正在整理 {len(result.time_stamps)} 个时间戳",
+            )
             breakline = BreaklineAlgorithm(self._settings_store.build_breakline_config())
             audio_data = asr_service.get_last_audio()
             aggregated = (
@@ -55,6 +78,13 @@ class TranscriptionUseCase:
             )
             lines = serialize_aggregated_lines(aggregated)
             subtitle_text = breakline.to_srt(aggregated)
+        self._notify_progress(
+            progress_callback,
+            100,
+            100,
+            "转录结果整理完成",
+            f"共生成 {len(lines)} 条字幕",
+        )
 
         return {
             "language": result.language,
@@ -66,3 +96,16 @@ class TranscriptionUseCase:
             "subtitleLineCount": len(lines),
             "timestampCount": len(result.time_stamps or []),
         }
+
+    def _notify_progress(
+        self,
+        callback: Optional[Callable[[int, int, str, str], None]],
+        value: int,
+        maximum: int,
+        status_text: str,
+        detail_text: str,
+    ) -> None:
+        """在存在回调时转发转录进度。"""
+        if callback is None:
+            return
+        callback(value, maximum, status_text, detail_text)

@@ -8,7 +8,7 @@ ASR Service Module
 - 提供简化的同步 API
 """
 
-from typing import List, Optional, Union
+from typing import Callable, List, Optional, Union
 
 from loguru import logger
 from PySide6.QtCore import QObject, Signal
@@ -194,6 +194,7 @@ class ASRService(QObject):
         audio_input: Union[str, AudioData],
         return_time_stamps: bool = True,
         show_progress: bool = False,
+        progress_callback: Optional[Callable[[int, int, str, str], None]] = None,
     ) -> Optional[TranscriptionResult]:
         """
         转录音频（同步方式）
@@ -215,7 +216,10 @@ class ASRService(QObject):
         try:
             self._emit_status_change(ModelStatus.PROCESSING)
             result = self._interface.transcribe(
-                audio_input, return_time_stamps, show_progress
+                audio_input,
+                return_time_stamps,
+                show_progress,
+                progress_callback,
             )
             self._emit_status_change(ModelStatus.READY)
             self._signals.transcribe_finished.emit(result, "")
@@ -234,6 +238,7 @@ class ASRService(QObject):
         audio_input: Union[str, AudioData],
         text: str,
         language: Union[Language, List[Language]] = Language.CHINESE,
+        progress_callback: Optional[Callable[[int, int, str, str], None]] = None,
     ) -> Optional[AlignmentResult]:
         """
         对齐音频和文本（同步方式）
@@ -254,7 +259,12 @@ class ASRService(QObject):
 
         try:
             self._emit_status_change(ModelStatus.PROCESSING)
-            result = self._interface.align(audio_input, text, language)
+            result = self._interface.align(
+                audio_input,
+                text,
+                language,
+                progress_callback,
+            )
             self._emit_status_change(ModelStatus.READY)
             self._signals.align_finished.emit(result, "")
             return result

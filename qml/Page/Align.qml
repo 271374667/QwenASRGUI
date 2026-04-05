@@ -169,6 +169,37 @@ Rectangle {
                         }
                     }
 
+                    ColumnLayout {
+                        visible: viewModel.state.isAligning
+                        Layout.fillWidth: true
+                        spacing: 6
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: viewModel.state.taskProgressText !== ""
+                                ? viewModel.state.taskProgressText
+                                : qsTr("正在执行强制对齐...")
+                            color: root.textColor
+                            font.weight: Font.Medium
+                            wrapMode: Text.WordWrap
+                        }
+
+                        Label {
+                            visible: viewModel.state.taskProgressDetailText !== ""
+                            Layout.fillWidth: true
+                            text: viewModel.state.taskProgressDetailText
+                            color: root.secondaryTextColor
+                            wrapMode: Text.WordWrap
+                        }
+
+                        ProgressBar {
+                            Layout.fillWidth: true
+                            from: 0
+                            to: Math.max(1, viewModel.state.taskProgressMaximum)
+                            value: viewModel.state.taskProgressValue
+                        }
+                    }
+
                     ProgressBar {
                         visible: viewModel.state.isLoadingModel
                         Layout.fillWidth: true
