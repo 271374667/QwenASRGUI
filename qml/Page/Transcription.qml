@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.FluentWinUI3
 import QtQuick.Layouts
+import QtQuick.Controls as Controls
 import "../Component"
 import "../Global"
 
@@ -209,8 +210,9 @@ Rectangle {
                 subtitle: qsTr("支持拖放和文件对话框选择。")
 
                 Rectangle {
+                    visible: viewModel.state.selectedFilePath === ""
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 240
+                    Layout.preferredHeight: visible ? 240 : 0
                     radius: 16
                     color: dropArea.containsDrag ? Qt.darker(root.dropColor, 1.04) : root.dropColor
                     border.width: 1
@@ -382,6 +384,9 @@ Rectangle {
                             clip: true
                             spacing: 8
                             model: viewModel.timeline_items
+                            Controls.ScrollBar.vertical: Controls.ScrollBar {
+                                policy: Controls.ScrollBar.AlwaysOn
+                            }
 
                             delegate: Rectangle {
                                 required property var modelData

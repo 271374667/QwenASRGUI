@@ -13,6 +13,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "modelSize": "auto",
     "quantizationMode": "auto",
     "device": "auto",
+    "logDisplayLimit": 1000,
     "segmentDuration": 15.0,
     "lowPriorityMode": False,
     "inferenceDelay": 0.0,
@@ -193,6 +194,9 @@ class SettingsStore(QObject):
 
         if key == "maxCharsPerLine":
             return max(6, min(50, int(value)))
+
+        if key == "logDisplayLimit":
+            return max(1000, min(10000, int(round(float(value)))))
 
         if key == "segmentDuration":
             return max(5.0, min(60.0, float(value)))

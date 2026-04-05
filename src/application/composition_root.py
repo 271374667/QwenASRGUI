@@ -61,6 +61,7 @@ class CompositionRoot:
         )
         self.log_view_model = LogViewModel(
             self.application_state,
+            self.settings_store,
             self.log_store,
             self.file_dialog_gateway,
         )

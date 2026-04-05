@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.FluentWinUI3
 import QtQuick.Layouts
+import QtQuick.Controls as Controls
 import "../Component"
 
 Rectangle {
@@ -21,11 +22,13 @@ Rectangle {
         let source = viewModel.entries
         let text = searchField.text.toLowerCase()
         let level = levelCombo.currentText
-        return source.filter(function(item) {
+        let result = source.filter(function(item) {
             let matchedText = text === "" || item.message.toLowerCase().indexOf(text) !== -1 || item.source.toLowerCase().indexOf(text) !== -1
             let matchedLevel = level === qsTr("全部") || item.level === level
             return matchedText && matchedLevel
         })
+        let limit = Math.max(1000, viewModel.logDisplayLimit || 1000)
+        return result.length > limit ? result.slice(result.length - limit) : result
     }
 
     function escapeHtml(text) {
@@ -78,7 +81,20 @@ Rectangle {
             + "</div>"
     }
 
+    function scheduleLogAutoScroll() {
+        logAutoScrollTimer.restart()
+    }
+
     color: backgroundColor
+
+    Timer {
+        id: logAutoScrollTimer
+        interval: 0
+        repeat: false
+        onTriggered: {
+            logFlickable.contentY = Math.max(0, logFlickable.contentHeight - logFlickable.height)
+        }
+    }
 
     ScrollView {
         id: scrollView
@@ -115,7 +131,7 @@ Rectangle {
                     StatTile {
                         label: qsTr("搜索结果")
                         value: String(root.filteredEntries().length)
-                        hint: qsTr("结合搜索与级别过滤后的结果")
+                        hint: qsTr("结合搜索、级别过滤与显示范围后的结果")
                     }
                 }
 
@@ -166,18 +182,46 @@ Rectangle {
                 title: qsTr("日志流")
                 subtitle: qsTr("最新日志显示在下方。")
 
-                TextArea {
+                Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 460
-                    readOnly: true
-                    text: root.formattedEntriesRichText()
-                    textFormat: TextEdit.RichText
-                    wrapMode: TextEdit.NoWrap
-                    font.family: "Consolas"
-                    horizontalAlignment: TextEdit.AlignLeft
-                    verticalAlignment: TextEdit.AlignTop
-                    selectByMouse: true
-                    padding: 12
+                    radius: 12
+                    color: root.isDark ? "#181818" : "#ffffff"
+                    border.width: 1
+                    border.color: root.isDark ? "#343434" : "#dddddd"
+
+                    Flickable {
+                        id: logFlickable
+                        anchors.fill: parent
+                        anchors.margins: 8
+                        clip: true
+                        contentWidth: Math.max(width, logText.contentWidth)
+                        contentHeight: Math.max(height, logText.contentHeight)
+                        boundsBehavior: Flickable.StopAtBounds
+                        Controls.ScrollBar.vertical: Controls.ScrollBar {
+                            policy: Controls.ScrollBar.AlwaysOn
+                        }
+
+                        TextEdit {
+                            id: logText
+                            x: 0
+                            y: 0
+                            width: logFlickable.contentWidth
+                            readOnly: true
+                            selectByMouse: true
+                            persistentSelection: true
+                            text: root.formattedEntriesRichText()
+                            textFormat: TextEdit.RichText
+                            wrapMode: TextEdit.NoWrap
+                            font.family: "Consolas"
+                            font.pixelSize: 13
+                            color: root.textColor
+
+                            onTextChanged: root.scheduleLogAutoScroll()
+
+                            Component.onCompleted: root.scheduleLogAutoScroll()
+                        }
+                    }
                 }
             }
         }

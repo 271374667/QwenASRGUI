@@ -38,6 +38,7 @@ Rectangle {
         root.setComboByValue(quantizationCombo, viewModel.quantization_options, settings.quantizationMode)
         root.setComboByValue(deviceCombo, viewModel.device_options, settings.device)
         root.setComboByValue(breaklineCombo, viewModel.breakline_method_options, settings.gapDetectionMethod)
+        logLineLimitSlider.value = settings.logDisplayLimit
         segmentSlider.value = settings.segmentDuration
         inferenceDelaySlider.value = settings.inferenceDelay
         maxCharsSlider.value = settings.maxCharsPerLine
@@ -269,6 +270,31 @@ Rectangle {
                         id: lowPrioritySwitch
                         text: qsTr("启用低优先级模式")
                         onToggled: viewModel.update_setting("lowPriorityMode", checked)
+                    }
+                }
+            }
+
+            SurfaceCard {
+                Layout.fillWidth: true
+                title: qsTr("日志设置")
+                subtitle: qsTr("控制日志页默认显示的最近日志行数。")
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 10
+
+                    Label {
+                        text: qsTr("日志显示范围: 最近 ") + Math.round(logLineLimitSlider.value) + qsTr(" 行")
+                        color: root.textColor
+                    }
+
+                    Slider {
+                        id: logLineLimitSlider
+                        Layout.fillWidth: true
+                        from: 1000
+                        to: 10000
+                        stepSize: 500
+                        onMoved: viewModel.update_setting("logDisplayLimit", value)
                     }
                 }
             }

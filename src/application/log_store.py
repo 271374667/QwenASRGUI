@@ -20,7 +20,7 @@ class LogStore(QObject):
     def __init__(
         self,
         parent: Optional[QObject] = None,
-        max_entries: int = 2000,
+        max_entries: int = 10000,
     ) -> None:
         """初始化日志存储。"""
         super().__init__(parent)

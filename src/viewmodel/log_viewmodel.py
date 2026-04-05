@@ -9,6 +9,7 @@ from PySide6.QtCore import QObject, Property, Signal, Slot
 
 from src.application.app_state import ApplicationState
 from src.application.log_store import LogStore
+from src.application.settings_store import SettingsStore
 from src.infrastructure.qt import QtFileDialogGateway
 
 
@@ -17,20 +18,24 @@ class LogViewModel(QObject):
 
     state_changed = Signal()
     entries_changed = Signal()
+    settings_changed = Signal()
 
     def __init__(
         self,
         application_state: ApplicationState,
+        settings_store: SettingsStore,
         log_store: LogStore,
         file_dialog_gateway: QtFileDialogGateway,
         parent: Optional[QObject] = None,
     ) -> None:
         super().__init__(parent)
         self._application_state = application_state
+        self._settings_store = settings_store
         self._log_store = log_store
         self._file_dialog_gateway = file_dialog_gateway
         self._application_state.state_changed.connect(self.state_changed.emit)
         self._log_store.entries_changed.connect(self.entries_changed.emit)
+        self._settings_store.settings_changed.connect(self.settings_changed.emit)
 
     @Property("QVariantMap", notify=state_changed)
     def state(self) -> Dict[str, Any]:
@@ -45,6 +50,11 @@ class LogViewModel(QObject):
     @Property(int, notify=entries_changed)
     def entry_count(self) -> int:
         return self._log_store.entry_count
+
+    @Property(int, notify=settings_changed)
+    def logDisplayLimit(self) -> int:
+        """返回日志页当前显示范围。"""
+        return int(self._settings_store.settings["logDisplayLimit"])
 
     @Slot()
     def clear_entries(self) -> None:
