@@ -23,11 +23,14 @@ Item {
 
     readonly property var topPages: normalizedPages("top")
     readonly property var bottomPages: normalizedPages("bottom")
+    readonly property var allPages: normalizedPages("__all__")
 
     property int currentIndex: 0
     property int previousIndex: 0
     property var buttonRegistry: ({})
     property int buttonRegistryVersion: 0
+    property var componentRegistry: ({})
+    property int preloadCursor: 0
     readonly property var currentNavButton: {
         root.buttonRegistryVersion
         return root.getNavButton(root.currentIndex)
@@ -47,7 +50,7 @@ Item {
             let page = root.pages[i]
             let pageSection = page.section ? page.section : "top"
 
-            if (pageSection === section) {
+            if (section === "__all__" || pageSection === section) {
                 result.push({
                     "index": i,
                     "key": page.key ? page.key : "",
@@ -95,17 +98,6 @@ Item {
         return root.buttonRegistry[index] ? root.buttonRegistry[index] : null
     }
 
-    function createPageObject(page) {
-        let component = Qt.createComponent(page.qmlPath)
-
-        if (component.status === Component.Error) {
-            console.error("Failed to load page:", page.qmlPath, component.errorString())
-            return null
-        }
-
-        return component.createObject(stackView, page.pageProps ? page.pageProps : {})
-    }
-
     function findPageIndex(pageKey) {
         if (!root.pages || !pageKey) {
             return -1
@@ -120,12 +112,56 @@ Item {
         return -1
     }
 
+    function getPageComponent(index, asynchronousLoad) {
+        if (!root.pages || index < 0 || index >= root.pages.length) {
+            return null
+        }
+
+        let cachedComponent = root.componentRegistry[index]
+        if (cachedComponent && cachedComponent.status === Component.Ready) {
+            return cachedComponent
+        }
+
+        let creationMode = asynchronousLoad ? Component.Asynchronous : Component.PreferSynchronous
+        let component = Qt.createComponent(root.pages[index].qmlPath, creationMode)
+
+        if (component.status === Component.Error) {
+            console.error("Failed to load page component:", root.pages[index].qmlPath, component.errorString())
+            return null
+        }
+
+        let updatedRegistry = ({})
+        for (let key in root.componentRegistry) {
+            updatedRegistry[key] = root.componentRegistry[key]
+        }
+        updatedRegistry[index] = component
+        root.componentRegistry = updatedRegistry
+        return component
+    }
+
+    function createPageObject(index) {
+        let component = root.getPageComponent(index, false)
+        if (!component) {
+            return null
+        }
+
+        if (component.status !== Component.Ready) {
+            component = Qt.createComponent(root.pages[index].qmlPath, Component.PreferSynchronous)
+            if (component.status === Component.Error) {
+                console.error("Failed to synchronously load page:", root.pages[index].qmlPath, component.errorString())
+                return null
+            }
+        }
+
+        return component.createObject(stackView, root.pages[index].pageProps ? root.pages[index].pageProps : {})
+    }
+
     function navigateTo(index) {
         if (!root.pages || index < 0 || index >= root.pages.length || root.currentIndex === index) {
             return
         }
 
-        let pageObject = createPageObject(root.pages[index])
+        let pageObject = createPageObject(index)
         if (!pageObject) {
             return
         }
@@ -152,11 +188,32 @@ Item {
         }
 
         if (stackView.depth === 0) {
-            let pageObject = createPageObject(root.pages[root.currentIndex])
+            let pageObject = createPageObject(root.currentIndex)
             if (pageObject) {
                 stackView.push(pageObject, {}, Controls.StackView.Immediate)
             }
         }
+    }
+
+    function preloadNextPage() {
+        if (!root.pages || root.pages.length === 0) {
+            preloadTimer.stop()
+            return
+        }
+
+        while (root.preloadCursor < root.pages.length) {
+            let index = root.preloadCursor
+            root.preloadCursor += 1
+
+            if (index === root.currentIndex) {
+                continue
+            }
+
+            root.getPageComponent(index, true)
+            return
+        }
+
+        preloadTimer.stop()
     }
 
     onPagesChanged: {
@@ -174,7 +231,19 @@ Item {
         root.ensureCurrentPageLoaded()
     }
 
-    Component.onCompleted: root.ensureCurrentPageLoaded()
+    Component.onCompleted: {
+        root.ensureCurrentPageLoaded()
+        root.preloadCursor = 0
+        preloadTimer.start()
+    }
+
+    Timer {
+        id: preloadTimer
+        interval: 0
+        repeat: true
+        running: false
+        onTriggered: root.preloadNextPage()
+    }
 
     RowLayout {
         anchors.fill: parent
