@@ -33,13 +33,14 @@ Rectangle {
             text: root.label
             color: root.labelColor
             font.pixelSize: 12
+            font.weight: Font.Medium
         }
 
         Label {
             text: root.value
             color: root.valueColor
-            font.pixelSize: 24
-            font.weight: Font.DemiBold
+            font.pixelSize: 26
+            font.weight: Font.Bold
             Layout.fillWidth: true
             elide: Text.ElideRight
         }
@@ -49,7 +50,7 @@ Rectangle {
             text: root.hint
             color: root.labelColor
             wrapMode: Text.WordWrap
-            font.pixelSize: 11
+            font.pixelSize: 12
             Layout.fillWidth: true
         }
     }

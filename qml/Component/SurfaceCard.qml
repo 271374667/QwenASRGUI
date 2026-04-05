@@ -38,8 +38,8 @@ Rectangle {
                 visible: root.title !== ""
                 text: root.title
                 color: root.titleColor
-                font.pixelSize: 18
-                font.weight: Font.DemiBold
+                font.pixelSize: 19
+                font.weight: Font.Bold
             }
 
             Label {
@@ -47,7 +47,7 @@ Rectangle {
                 text: root.subtitle
                 color: root.subtitleColor
                 wrapMode: Text.WordWrap
-                font.pixelSize: 12
+                font.pixelSize: 13
             }
         }
 

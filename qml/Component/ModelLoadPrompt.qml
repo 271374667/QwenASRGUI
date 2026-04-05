@@ -87,8 +87,8 @@ Rectangle {
                     Layout.fillWidth: true
                     text: root.actionTitle !== "" ? root.actionTitle : qsTr("需要先加载共享模型")
                     color: root.titleColor
-                    font.pixelSize: 22
-                    font.weight: Font.DemiBold
+                    font.pixelSize: 24
+                    font.weight: Font.Bold
                     wrapMode: Text.WordWrap
                 }
 
@@ -98,6 +98,7 @@ Rectangle {
                         ? root.actionDescription
                         : qsTr("当前操作依赖共享模型。你可以立即加载并继续，也可以前往设置页手动管理模型。")
                     color: root.bodyColor
+                    font.pixelSize: 14
                     wrapMode: Text.WordWrap
                     lineHeight: 1.25
                 }

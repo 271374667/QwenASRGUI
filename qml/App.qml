@@ -15,6 +15,9 @@ ApplicationWindow {
     visible: true
     title: qsTr("QwenASR")
     color: pageLayout.backgroundColor
+    font.family: "Source Han Sans SC"
+    font.pointSize: 10.5
+    font.weight: Font.Normal
 
     FluentTitleBar {
         id: titleBar

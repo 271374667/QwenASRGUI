@@ -40,6 +40,6 @@ Rectangle {
         text: root.text
         color: root.foregroundTone
         font.pixelSize: 12
-        font.weight: Font.Medium
+        font.weight: Font.DemiBold
     }
 }

@@ -112,8 +112,8 @@ Item {
                     Layout.alignment: Qt.AlignVCenter
                     text: root.appName
                     color: root.textColor
-                    font.pixelSize: 14
-                    font.weight: Font.DemiBold
+                    font.pixelSize: 15
+                    font.weight: Font.Bold
                 }
 
                 Item {

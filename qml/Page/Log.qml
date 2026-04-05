@@ -213,7 +213,6 @@ Rectangle {
                             text: root.formattedEntriesRichText()
                             textFormat: TextEdit.RichText
                             wrapMode: TextEdit.NoWrap
-                            font.family: "Consolas"
                             font.pixelSize: 13
                             color: root.textColor
 

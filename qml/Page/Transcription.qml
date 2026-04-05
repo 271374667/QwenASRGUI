@@ -253,8 +253,8 @@ Rectangle {
                             Layout.alignment: Qt.AlignHCenter
                             text: qsTr("拖放音频或视频文件到这里")
                             color: root.textColor
-                            font.pixelSize: 16
-                            font.weight: Font.Medium
+                            font.pixelSize: 17
+                            font.weight: Font.Bold
                         }
 
                         Label {
@@ -277,7 +277,7 @@ Rectangle {
                             Layout.fillWidth: true
                             text: viewModel.state.selectedFileName
                             color: root.textColor
-                            font.pixelSize: 15
+                            font.pixelSize: 16
                             font.weight: Font.Medium
                             elide: Text.ElideMiddle
                         }

@@ -258,7 +258,7 @@ Rectangle {
                             Layout.fillWidth: true
                             text: viewModel.state.selectedFileName
                             color: root.textColor
-                            font.pixelSize: 15
+                            font.pixelSize: 16
                             font.weight: Font.Medium
                             elide: Text.ElideMiddle
                         }
