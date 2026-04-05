@@ -264,6 +264,9 @@ Rectangle {
                     wrapMode: TextEdit.Wrap
                     text: viewModel.state.inputText
                     placeholderText: qsTr("在这里粘贴待对齐文本。")
+                    horizontalAlignment: TextEdit.AlignLeft
+                    verticalAlignment: TextEdit.AlignTop
+                    padding: 12
                     onTextChanged: viewModel.update_input_text(text)
                 }
             }
@@ -304,6 +307,10 @@ Rectangle {
                     readOnly: true
                     wrapMode: TextEdit.Wrap
                     text: viewModel.state.subtitleText !== "" ? viewModel.state.subtitleText : qsTr("对齐字幕会显示在这里。")
+                    horizontalAlignment: TextEdit.AlignLeft
+                    verticalAlignment: TextEdit.AlignTop
+                    selectByMouse: true
+                    padding: 12
                 }
             }
 
@@ -318,6 +325,10 @@ Rectangle {
                     readOnly: true
                     wrapMode: TextEdit.Wrap
                     text: viewModel.state.rawTimestampText !== "" ? viewModel.state.rawTimestampText : qsTr("执行对齐后，这里会显示原始时间戳。")
+                    horizontalAlignment: TextEdit.AlignLeft
+                    verticalAlignment: TextEdit.AlignTop
+                    selectByMouse: true
+                    padding: 12
                 }
             }
         }

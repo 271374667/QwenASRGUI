@@ -305,6 +305,10 @@ Rectangle {
                     readOnly: true
                     wrapMode: TextEdit.Wrap
                     text: viewModel.state.transcriptText !== "" ? viewModel.state.transcriptText : qsTr("转录结果会显示在这里。")
+                    horizontalAlignment: TextEdit.AlignLeft
+                    verticalAlignment: TextEdit.AlignTop
+                    selectByMouse: true
+                    padding: 12
                 }
             }
 

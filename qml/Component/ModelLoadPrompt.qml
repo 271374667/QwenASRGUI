@@ -19,6 +19,7 @@ Rectangle {
     readonly property color panelBorderColor: isDark ? "#404040" : "#d8d8d8"
     readonly property color titleColor: isDark ? "#f5f5f5" : "#202020"
     readonly property color bodyColor: isDark ? "#c8c8c8" : "#5c5c5c"
+    readonly property int panelPadding: 20
 
     anchors.fill: parent
     color: overlayColor
@@ -50,6 +51,7 @@ Rectangle {
     Rectangle {
         id: panel
         width: Math.min(parent.width - 32, 460)
+        height: contentLayout.implicitHeight + root.panelPadding * 2
         radius: 16
         color: root.panelColor
         border.width: 1
@@ -72,8 +74,9 @@ Rectangle {
         }
 
         ColumnLayout {
+            id: contentLayout
             anchors.fill: parent
-            anchors.margins: 20
+            anchors.margins: root.panelPadding
             spacing: 16
 
             ColumnLayout {

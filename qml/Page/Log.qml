@@ -15,16 +15,6 @@ Rectangle {
     readonly property color textColor: isDark ? "#f5f5f5" : "#202020"
     readonly property color secondaryTextColor: isDark ? "#b3b3b3" : "#6b6b6b"
 
-    function levelTone(levelText) {
-        switch (levelText) {
-            case "SUCCESS": return "success"
-            case "WARNING": return "warning"
-            case "ERROR": return "danger"
-            case "INFO": return "accent"
-            default: return "neutral"
-        }
-    }
-
     function filteredEntries() {
         let source = viewModel.entries
         let text = searchField.text.toLowerCase()
@@ -34,6 +24,24 @@ Rectangle {
             let matchedLevel = level === qsTr("全部") || item.level === level
             return matchedText && matchedLevel
         })
+    }
+
+    function formatEntry(item) {
+        return "[" + item.timestamp + "] [" + item.level + "] " + item.source + " - "
+            + item.message.replace(/\r?\n/g, " ")
+    }
+
+    function formattedEntriesText() {
+        let entries = root.filteredEntries()
+        if (entries.length === 0) {
+            return qsTr("当前没有匹配的日志记录。")
+        }
+
+        let lines = []
+        for (let index = 0; index < entries.length; ++index) {
+            lines.push(root.formatEntry(entries[index]))
+        }
+        return lines.join("\n")
     }
 
     color: backgroundColor
@@ -108,6 +116,7 @@ Rectangle {
                         id: searchField
                         Layout.fillWidth: true
                         placeholderText: qsTr("搜索日志内容或来源模块")
+                        horizontalAlignment: TextInput.AlignLeft
                     }
 
                     ComboBox {
@@ -123,64 +132,17 @@ Rectangle {
                 title: qsTr("日志流")
                 subtitle: qsTr("最新日志显示在下方。")
 
-                ColumnLayout {
+                TextArea {
                     Layout.fillWidth: true
-                    spacing: 8
-
-                    Repeater {
-                        model: root.filteredEntries()
-
-                        delegate: Rectangle {
-                            required property var modelData
-                            Layout.fillWidth: true
-                            radius: 10
-                            color: root.isDark ? "#1f1f1f" : "#fafafa"
-                            border.width: 1
-                            border.color: root.isDark ? "#343434" : "#e4e4e4"
-                            implicitHeight: entryColumn.implicitHeight + 18
-
-                            ColumnLayout {
-                                id: entryColumn
-                                anchors.fill: parent
-                                anchors.margins: 10
-                                spacing: 6
-
-                                RowLayout {
-                                    Layout.fillWidth: true
-
-                                    Label {
-                                        text: modelData.timestamp
-                                        color: root.secondaryTextColor
-                                        font.family: "Consolas"
-                                    }
-
-                                    StatusChip {
-                                        text: modelData.level
-                                        tone: root.levelTone(modelData.level)
-                                    }
-
-                                    Label {
-                                        text: modelData.source
-                                        color: root.secondaryTextColor
-                                        Layout.fillWidth: true
-                                    }
-                                }
-
-                                Label {
-                                    Layout.fillWidth: true
-                                    wrapMode: Text.WordWrap
-                                    text: modelData.message
-                                    color: root.textColor
-                                }
-                            }
-                        }
-                    }
-
-                    Label {
-                        visible: root.filteredEntries().length === 0
-                        text: qsTr("当前没有匹配的日志记录。")
-                        color: root.secondaryTextColor
-                    }
+                    Layout.preferredHeight: 460
+                    readOnly: true
+                    text: root.formattedEntriesText()
+                    wrapMode: TextEdit.NoWrap
+                    font.family: "Consolas"
+                    horizontalAlignment: TextEdit.AlignLeft
+                    verticalAlignment: TextEdit.AlignTop
+                    selectByMouse: true
+                    padding: 12
                 }
             }
         }
